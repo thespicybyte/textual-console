@@ -272,8 +272,9 @@ class CommandAutoComplete(AutoComplete):
             return
         _, y = self.target.cursor_screen_offset
         height = self.option_list.outer_size.height
-        if y + 1 + height > self.screen.size.height and y - height >= 0:
-            self.absolute_offset = Offset(offset.x, y - height)
+        fits_below = y + 1 + height <= self.screen.size.height
+        row = y - height if not fits_below and y - height >= 0 else y + 1
+        self.absolute_offset = Offset(offset.x, row)
 
     def _get_target_state(self) -> TargetState:
         target = self.target

@@ -122,6 +122,22 @@ async def test_demo_dropdown_stays_on_screen() -> None:
         assert dropdown.display
         assert dropdown.region.bottom <= app.screen.size.height
         assert dropdown.region.y >= 0
+        prompt = app.query_one(ConsoleInput)
+        assert dropdown.region.bottom == prompt.cursor_screen_offset.y
+
+
+async def test_dropdown_returns_below_when_options_shrink() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(100, 34)) as pilot:
+        await pilot.press("tab")
+        await pilot.pause()
+        dropdown = app.query_one(CommandAutoComplete)
+        prompt = app.query_one(ConsoleInput)
+        assert dropdown.region.bottom == prompt.cursor_screen_offset.y
+        await pilot.press("q")
+        await pilot.pause()
+        assert dropdown.region.height == 1
+        assert dropdown.region.y == prompt.cursor_screen_offset.y + 1
 
 
 def test_main_parses_arguments(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

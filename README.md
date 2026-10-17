@@ -145,7 +145,8 @@ them as the fallback. In herdr, `shift+enter` arrives as Enter and submits.
 output. If nothing is selected, it pastes the last text that the app copied.
 **All lines of a multi-line selection are pasted.**
 **To paste text from other apps, use the terminal paste** (`cmd+v` or `ctrl+shift+v`).
-It keeps all lines too. `ctrl+v` pastes the same way.
+It keeps all lines too. `ctrl+v` is different: it pastes the last text that the app
+copied (`app.clipboard`), with all lines, and not the system clipboard.
 
 Some terminals use the middle-click for their own paste and do not send it to the
 app. Then you get the terminal paste. The demo shows which one your terminal does.
