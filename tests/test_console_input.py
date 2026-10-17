@@ -122,3 +122,16 @@ async def test_middle_click_paste_can_be_disabled() -> None:
         app.copy_to_clipboard("copied")
         await pilot.click(ConsoleInput, button=2)
         assert prompt.value == ""
+
+
+async def test_middle_click_pastes_only_first_line() -> None:
+    app = InputApp()
+    async with app.run_test() as pilot:
+        output = app.query_one(ConsoleOutput)
+        prompt = app.query_one(ConsoleInput)
+        output.write("first line")
+        output.write("second line")
+        await pilot.pause()
+        output.screen.selections = {output: Selection(Offset(6, 0), Offset(6, 1))}
+        await pilot.click(ConsoleInput, button=2)
+        assert prompt.value == "line"

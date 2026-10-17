@@ -116,8 +116,12 @@ class ConsoleInput(Input):
     def _take_paste_text(self, event: events.MouseDown) -> None:
         # The screen clears the selection on mouse up, before this widget gets
         # the event, so the text is read on mouse down.
+        self._paste_text = ""
         if event.button == 2 and self.middle_click_paste:
-            self._paste_text = self.screen.get_selected_text() or self.app.clipboard
+            text = self.screen.get_selected_text() or self.app.clipboard
+            # The input has one line, so only the first line is pasted.
+            lines = text.splitlines()
+            self._paste_text = lines[0] if lines else ""
 
     @on(events.MouseUp)
     def _paste_on_middle_click(self, event: events.MouseUp) -> None:
