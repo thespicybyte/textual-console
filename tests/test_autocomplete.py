@@ -215,6 +215,7 @@ def test_adapter_overrides_match_the_pinned_autocomplete() -> None:
         "_listen_to_messages",
         "_complete",
         "_get_target_state",
+        "_align_to_target",
         "_rebuild_options",
         "_handle_target_update",
     ):

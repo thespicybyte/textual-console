@@ -8,6 +8,7 @@ from typing import Any
 from rich.cells import cell_len
 from textual import events
 from textual.content import Content
+from textual.geometry import Offset
 from textual.widgets import TextArea
 from textual.widgets.option_list import Option
 from textual_autocomplete import (
@@ -255,6 +256,24 @@ class CommandAutoComplete(AutoComplete):
         with self.prevent(TextArea.Changed):
             self.apply_completion(option.value, self._get_target_state())
         self.post_completion()
+
+    def _align_to_target(self) -> None:
+        # The base class only moves the dropdown sideways, so a prompt at the
+        # bottom of the screen hides it. Put it above the cursor if it does
+        # not fit below. The options are rebuilt after this call, so their
+        # height is only known after the next refresh.
+        super()._align_to_target()
+        self._flip_above_if_needed()
+        self.call_after_refresh(self._flip_above_if_needed)
+
+    def _flip_above_if_needed(self) -> None:
+        offset = self.absolute_offset
+        if offset is None or not self.display:
+            return
+        _, y = self.target.cursor_screen_offset
+        height = self.option_list.outer_size.height
+        if y + 1 + height > self.screen.size.height and y - height >= 0:
+            self.absolute_offset = Offset(offset.x, y - height)
 
     def _get_target_state(self) -> TargetState:
         target = self.target
