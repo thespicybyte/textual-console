@@ -791,3 +791,27 @@ async def test_double_escape_ignores_read_only_input(clock: Clock) -> None:
         await pilot.press("escape", "escape")
         assert prompt.value == "keep"
         assert app.probed == 2
+
+
+async def test_read_only_input_keeps_text_on_up_and_down() -> None:
+    app = InputApp(history=CommandHistory(["one", "two"]), read_only=True)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.load_text("keep")
+        prompt.focus()
+        await pilot.press("up", "up", "down")
+        assert prompt.value == "keep"
+        assert prompt.recalled_value is None
+
+
+async def test_read_only_input_does_not_submit() -> None:
+    history = CommandHistory(["one"])
+    app = InputApp(history=history, read_only=True)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.load_text("keep")
+        prompt.focus()
+        await pilot.press("enter")
+        assert app.submitted == []
+        assert prompt.value == "keep"
+        assert history.entries == ["one"]

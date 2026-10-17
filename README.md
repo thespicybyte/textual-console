@@ -115,6 +115,8 @@ prompt = ConsoleInput(prompt="> ", history=history, max_height=10)
   recalled multi-line command is shown with all its rows.
 - Submit records the command, clears the input (unless `clear_on_submit=False`) and posts
   `ConsoleInput.Submitted` with `value`, the whole text.
+- A `read_only` input keeps its text: paste, history, submit, completion and Esc Esc do
+  nothing.
 - `ConsoleInput.Changed` is `TextArea.Changed`: use `textual.widgets.TextArea.Changed`.
 - `ConsoleInput` is not an `Input` any more. The arguments that only `Input` has
   (`password`, `restrict`, `type`, `max_length`, `validators`, `validate_on`,
@@ -150,7 +152,9 @@ It keeps all lines too. `ctrl+v` is different: it pastes the last text that the 
 copied (`app.clipboard`), with all lines, and not the system clipboard.
 
 Some terminals use the middle-click for their own paste and do not send it to the
-app. Then you get the terminal paste. The demo shows which one your terminal does.
+app. Then you get the terminal paste. Check 4 in
+[docs/manual-testing.md](https://github.com/thespicybyte/textual-console/blob/main/docs/manual-testing.md)
+shows which one your terminal does.
 
 ## CommandAutoComplete
 

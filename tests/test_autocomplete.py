@@ -27,9 +27,11 @@ class CompleteApp(App[None]):
         candidates: Sequence[str | DropdownItem],
         history: list[str] | None = None,
         tab_moves_focus: bool = False,
+        read_only: bool = False,
     ) -> None:
         super().__init__()
         self.candidates = candidates
+        self.read_only = read_only
         self.tab_moves_focus = tab_moves_focus
         self.entries = history or []
         self.lines: list[str] = []
@@ -39,6 +41,7 @@ class CompleteApp(App[None]):
             id="prompt",
             history=CommandHistory(self.entries),
             tab_moves_focus=self.tab_moves_focus,
+            read_only=self.read_only,
         )
         if self.tab_moves_focus:
             yield Button("other")
@@ -327,6 +330,17 @@ async def test_tab_with_one_candidate_applies_it() -> None:
         assert prompt.value == "go only "
         assert not dropdown_open(app)
         assert app.focused is prompt
+
+
+async def test_tab_ignores_read_only_input() -> None:
+    app = CompleteApp(["only"], read_only=True)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.load_text("go ")
+        await pilot.press("tab")
+        assert prompt.value == "go "
+        assert not dropdown_open(app)
 
 
 async def test_tab_with_no_candidates_falls_through() -> None:

@@ -49,6 +49,9 @@ class ConsoleInput(TextArea):
     move focus unless ``tab_moves_focus`` is set. A middle click pastes the text
     selected in the output, or else the app clipboard.
 
+    A ``read_only`` input keeps its text: paste, history, submit, completion and
+    Esc Esc do nothing.
+
     ``prompt`` is drawn in the left gutter on the first row. Other rows get blank
     padding of the same width. It is not part of the text, and the
     ``console-input--prompt`` component class styles it. ``suggester`` shows
@@ -328,6 +331,8 @@ class ConsoleInput(TextArea):
         if self._cursor_row() > 0:
             self.action_cursor_up()
             return
+        if self.read_only:
+            return
         entry = self.command_history.previous(self.value)
         if entry is not None:
             self.recall(entry)
@@ -336,6 +341,8 @@ class ConsoleInput(TextArea):
         """Move down a row, or show the next history entry from the last row."""
         if self._cursor_row() < self.wrapped_document.height - 1:
             self.action_cursor_down()
+            return
+        if self.read_only:
             return
         entry = self.command_history.next()
         if entry is not None:
@@ -353,6 +360,8 @@ class ConsoleInput(TextArea):
 
     def action_submit(self) -> None:
         """Post the text as one command, record it, and clear if asked to."""
+        if self.read_only:
+            return
         value = self.value
         self.post_message(self.Submitted(self, value))
         self.command_history.record(value)

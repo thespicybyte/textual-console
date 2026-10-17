@@ -22,7 +22,7 @@ from textual_console._console_input import ConsoleInput
 from textual_console._tokens import last_token_span
 
 CandidateSource = Callable[[str], Iterable[str | DropdownItem]]
-"""A function that gets the full line and returns the possible completions."""
+"""A function that gets the cursor's line and returns the possible completions."""
 
 
 def _width(prefix: Content | None, main: Content) -> int:
@@ -140,7 +140,7 @@ class CommandAutoComplete(AutoComplete):
 
         Args:
             target: The input to complete, or a selector for it.
-            candidates: A function that gets the full line and returns the
+            candidates: A function that gets the cursor's line and returns the
                 possible completions for the last word. They are filtered
                 against that word.
             **autocomplete_kwargs: Other arguments for
@@ -221,6 +221,8 @@ class CommandAutoComplete(AutoComplete):
     def _open_with_tab(self, event: events.Key) -> bool:
         """Open the dropdown for the current word. Return whether Tab was used."""
         target = self.target
+        if target.read_only:
+            return False
         row, column = target.cursor_location
         line = target.document.get_line(row)
         if column != len(line):
@@ -317,6 +319,8 @@ class CommandAutoComplete(AutoComplete):
         except ValueError:
             return
         target = self.target
+        if target.read_only:
+            return
         row = target.cursor_location[0]
         new = f"{shlex.quote(value)} "
         target.replace(new, (row, start), (row, end))
