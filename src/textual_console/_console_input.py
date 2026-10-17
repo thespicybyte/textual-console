@@ -6,10 +6,9 @@ from typing import Any, cast
 from textual import events, on
 from textual.actions import SkipAction
 from textual.binding import Binding
-from textual.document._document import Document
 from textual.message import Message
 from textual.widgets import TextArea
-from textual.widgets.text_area import Selection
+from textual.widgets.text_area import Document, Selection
 
 from textual_console._history import CommandHistory
 
@@ -96,13 +95,20 @@ class ConsoleInput(TextArea):
                 ``False``, Tab does nothing in the input.
             max_height: The most rows of text to show before the text scrolls.
                 ``None`` sets no limit, so a CSS ``max-height`` applies. This
-                sets an inline style, which wins over CSS.
+                sets an inline style, which wins over CSS. The limit is
+                applied when the widget is mounted: changing the attribute
+                later does nothing.
             **text_area_kwargs: Other arguments for
                 :class:`textual.widgets.TextArea`, such as ``id``, ``classes``
                 or ``compact``. The arguments that make a ``TextArea`` an editor
                 (``soft_wrap``, ``language``, ``tab_behavior``, line numbers)
                 are fixed here.
+
+        Raises:
+            ValueError: If ``max_height`` is not ``None`` and is less than 1.
         """
+        if max_height is not None and max_height < 1:
+            raise ValueError(f"max_height must be at least 1, not {max_height}")
         super().__init__(
             value,
             soft_wrap=True,
@@ -124,7 +130,10 @@ class ConsoleInput(TextArea):
         self.tab_moves_focus = tab_moves_focus
         """Whether Tab moves the focus."""
         self.max_height = max_height
-        """The most rows of text shown before the text scrolls, or ``None``."""
+        """The most rows of text shown before the text scrolls, or ``None``.
+
+        It is applied when the widget is mounted. Changing it later does nothing.
+        """
         self._paste_text = ""
         self.recalled_value: str | None = None
         """The text that came from the history, or ``None``.

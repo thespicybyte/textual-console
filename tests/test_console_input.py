@@ -346,3 +346,9 @@ async def test_cursor_position_and_value_setter() -> None:
 def test_input_only_arguments_are_rejected() -> None:
     with pytest.raises(TypeError):
         ConsoleInput(password=True)  # pyright: ignore[reportCallIssue]
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_max_height_below_one_is_rejected(value: int) -> None:
+    with pytest.raises(ValueError, match="max_height must be at least 1"):
+        ConsoleInput(max_height=value)

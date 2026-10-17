@@ -67,6 +67,10 @@ class CommandAutoComplete(AutoComplete):
         return target
 
     def _listen_to_messages(self, event: events.Event) -> None:
+        # Upstream opens a hidden dropdown on Down and stops the key. Here Down
+        # must reach the input, to move between rows and walk the history.
+        if isinstance(event, events.Key) and event.key == "down" and not self.display:
+            return
         super()._listen_to_messages(event)
         if isinstance(event, TextArea.Changed):
             self._handle_target_update()

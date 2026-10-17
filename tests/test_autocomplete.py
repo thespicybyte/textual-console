@@ -216,3 +216,32 @@ def test_dropdown_snapshot(snap_compare: SnapCompare) -> None:
     assert snap_compare(
         CompleteApp(COMMANDS), run_before=_open_dropdown, terminal_size=(40, 10)
     )
+
+
+async def test_down_leaves_a_line_whose_end_has_candidates() -> None:
+    app = CompleteApp(["return", "relative"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "re\nlonger"
+        await pilot.press("up")
+        assert prompt.cursor_location == (0, 2)
+        await pilot.pause()
+        assert app.query_one(AutoComplete).option_list.option_count
+        await pilot.press("down")
+        assert prompt.cursor_location == (1, 2)
+        assert not app.query_one(AutoComplete).display
+
+
+async def test_escape_then_down_walks_history_without_dropdown() -> None:
+    app = CompleteApp(COMMANDS, history=["old"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("h", "e")
+        await pilot.pause()
+        assert dropdown_open(app)
+        await pilot.press("escape", "down")
+        await pilot.pause()
+        assert prompt.value == "he"
+        assert not app.query_one(AutoComplete).display
