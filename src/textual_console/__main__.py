@@ -169,6 +169,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         help="limit the scrollback of the output to N lines",
     )
     args = parser.parse_args(argv)
+    if args.max_lines is not None and args.max_lines < 1:
+        parser.error("--max-lines must be at least 1")
     ConsoleDemo(log_path=args.log, max_lines=args.max_lines).run()
 
 

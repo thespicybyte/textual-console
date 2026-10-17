@@ -137,7 +137,13 @@ class ConsoleOutput(RichLog, can_focus=False):
             id: ID of the widget in the DOM.
             classes: CSS classes of the widget.
             disabled: Whether the widget is disabled.
+
+        Raises:
+            ValueError: If ``max_lines`` is not ``None`` and is less than 1.
         """
+        if max_lines is not None and max_lines < 1:
+            msg = f"max_lines must be at least 1, not {max_lines}"
+            raise ValueError(msg)
         super().__init__(
             max_lines=max_lines,
             min_width=min_width,
@@ -496,10 +502,7 @@ class ConsoleOutput(RichLog, can_focus=False):
             return blended
 
         selected = Strip(
-            [
-                Segment(seg.text, blend(seg.style), seg.control)
-                for seg in middle
-            ],
+            [Segment(seg.text, blend(seg.style), seg.control) for seg in middle],
             middle.cell_length,
         )
         return Strip.join([before, selected, after])

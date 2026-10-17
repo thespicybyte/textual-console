@@ -51,7 +51,7 @@ class Repl(App[None]):
 Repl().run()
 ```
 
-More programs are in [`examples/`](examples): `basic.py` (text, tables, copy),
+More programs are in [`examples/`](https://github.com/thespicybyte/textual-console/tree/main/examples): `basic.py` (text, tables, copy),
 `repl.py` (all widgets and a transcript) and `ansi_stream.py` (ANSI output of a
 subprocess).
 

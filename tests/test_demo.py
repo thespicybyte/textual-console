@@ -90,3 +90,10 @@ async def test_ansi_stream_example() -> None:
         text = output_text(app.query_one(ConsoleOutput))
         assert "line 4" in text
         assert "\x1b" not in text
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_main_rejects_max_lines_below_one(value: str) -> None:
+    with pytest.raises(SystemExit) as exc:
+        main(["--max-lines", value])
+    assert exc.value.code == 2

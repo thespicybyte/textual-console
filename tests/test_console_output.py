@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from rich.table import Table
 from rich.text import Text
 from textual import events
@@ -530,3 +531,9 @@ async def test_selected_text_stays_readable_in_themes() -> None:
                     assert gap > 60, (theme, line, style)
                 else:
                     assert style.color.triplet.hex == expected
+
+
+@pytest.mark.parametrize("value", [0, -1])
+def test_max_lines_below_one_raises(value: int) -> None:
+    with pytest.raises(ValueError, match="max_lines"):
+        ConsoleOutput(max_lines=value)
