@@ -10,7 +10,7 @@ requires-python = ">=3.11"
 dependencies = [
     "textual>=8.2,<9",   # tested on 8.2.8; the APIs used exist since 2.0, but we test 8.x only
     "rich>=14",          # imported directly (Segment, Text); textual pins it too
-    "textual-autocomplete>=4.0.6,<5",   # CommandAutoComplete; key order is tested (risk 7)
+    "textual-autocomplete>=4.0.6,<4.1",   # CommandAutoComplete; key order is tested (risk 7)
 ]
 classifiers = [
     "Environment :: Console",

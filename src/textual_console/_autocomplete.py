@@ -4,9 +4,11 @@ import shlex
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from textual.widgets import Input
+from textual import events
+from textual.widgets import TextArea
 from textual_autocomplete import AutoComplete, DropdownItem, TargetState
 
+from textual_console._console_input import ConsoleInput
 from textual_console._tokens import last_token_span
 
 CandidateSource = Callable[[str], Iterable[str | DropdownItem]]
@@ -14,11 +16,17 @@ CandidateSource = Callable[[str], Iterable[str | DropdownItem]]
 
 
 class CommandAutoComplete(AutoComplete):
-    """Completes the last word of the line in the target input.
+    """Completes the last word of the cursor's line in the target input.
+
+    ``textual-autocomplete`` only supports ``Input`` targets, so this class
+    overrides four of its private methods to work with a :class:`ConsoleInput`.
+    The package is pinned to a version these overrides were written for.
 
     The search string is the last shell-style word. Choosing an option
     replaces only that word and adds a space. The text before it stays as typed,
-    and a completion that needs quoting is quoted. No suggestions are made when
+    and a completion that needs quoting is quoted. Only the cursor's line is
+    used: the candidate source gets that line, and a completion changes only
+    that line. No suggestions are made when
     the line is empty, ends in a space or a quote, has an unclosed quote, or the
     cursor is not at the end. Nothing is suggested while the target shows a
     value from its history (its ``recalled_value`` attribute).
@@ -31,7 +39,7 @@ class CommandAutoComplete(AutoComplete):
 
     def __init__(
         self,
-        target: Input | str,
+        target: ConsoleInput | str,
         candidates: CandidateSource,
         **autocomplete_kwargs: Any,  # noqa: ANN401
     ) -> None:
@@ -45,8 +53,37 @@ class CommandAutoComplete(AutoComplete):
             **autocomplete_kwargs: Other arguments for
                 :class:`textual_autocomplete.AutoComplete`.
         """
-        super().__init__(target, **autocomplete_kwargs)
+        super().__init__(target, **autocomplete_kwargs)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
         self._source = candidates
+
+    @property
+    def target(self) -> ConsoleInput:  # type: ignore[override]  # pyright: ignore[reportIncompatibleVariableOverride]
+        """The resolved target widget."""
+        if not isinstance(self._target, str):
+            assert isinstance(self._target, ConsoleInput)
+            return self._target
+        target = self.screen.query_one(self._target)
+        assert isinstance(target, ConsoleInput)
+        return target
+
+    def _listen_to_messages(self, event: events.Event) -> None:
+        super()._listen_to_messages(event)
+        if isinstance(event, TextArea.Changed):
+            self._handle_target_update()
+
+    def _complete(self, option_index: int) -> None:
+        if not self.display or self.option_list.option_count == 0:
+            return
+        option = self.option_list.get_option_at_index(option_index)
+        assert isinstance(option, DropdownItem)
+        with self.prevent(TextArea.Changed):
+            self.apply_completion(option.value, self._get_target_state())
+        self.post_completion()
+
+    def _get_target_state(self) -> TargetState:
+        target = self.target
+        row, column = target.cursor_location
+        return TargetState(text=target.document.get_line(row), cursor_position=column)
 
     def get_search_string(self, target_state: TargetState) -> str:
         """Return the last word of the line, or an empty string for no search."""
@@ -67,11 +104,11 @@ class CommandAutoComplete(AutoComplete):
 
     def get_candidates(self, target_state: TargetState) -> list[DropdownItem]:
         """Return the options for the current line."""
-        recalled: str | None = getattr(self.target, "recalled_value", None)
+        recalled = self.target.recalled_value
         if recalled is not None:
-            if target_state.text == recalled:
+            if self.target.value == recalled:
                 return []
-            self.target.recalled_value = None  # type: ignore[attr-defined]
+            self.target.recalled_value = None
         if not self.get_search_string(target_state):
             return []
         return [
@@ -80,11 +117,13 @@ class CommandAutoComplete(AutoComplete):
         ]
 
     def apply_completion(self, value: str, state: TargetState) -> None:
-        """Replace the last word with the chosen value, and add a space."""
+        """Replace the last word of the cursor's line, and add a space."""
         try:
-            start, _ = last_token_span(state.text)
+            start, end = last_token_span(state.text)
         except ValueError:
             return
-        result = f"{state.text[:start]}{shlex.quote(value)} "
-        self.target.value = result
-        self.target.cursor_position = len(result)
+        target = self.target
+        row = target.cursor_location[0]
+        new = f"{shlex.quote(value)} "
+        target.replace(new, (row, start), (row, end))
+        target.move_cursor((row, start + len(new)))

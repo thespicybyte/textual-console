@@ -1382,7 +1382,7 @@ test = [
 requires-dist = [
     { name = "rich", specifier = ">=14" },
     { name = "textual", specifier = ">=8.2,<9" },
-    { name = "textual-autocomplete", specifier = ">=4.0.6,<5" },
+    { name = "textual-autocomplete", specifier = ">=4.0.6,<4.1" },
 ]
 
 [package.metadata.requires-dev]
