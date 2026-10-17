@@ -19,7 +19,16 @@ token is stored anywhere.
    | Environment       | `pypi`        | `testpypi`    |
 
 3. On GitHub (Settings, Environments), create the environments `pypi` and
-   `testpypi`. Optionally add a required reviewer to `pypi`.
+   `testpypi`. Set up `pypi` like this:
+   - **Deployment branches and tags:** choose "Selected branches and tags". Add a
+     rule with Ref type **Tag** and pattern `v*`.
+   - **Required reviewers:** add the maintainer. Every PyPI publish then waits for
+     approval.
+   - **Optional:** create a tag ruleset (Settings, Rules, Rulesets, New tag ruleset)
+     that targets `v*`. Restrict creation, update and deletion to the maintainer
+     (add them to the bypass list).
+
+   Leave `testpypi` as it is.
 
 ## Release steps
 
@@ -43,5 +52,6 @@ token is stored anywhere.
    ```
 
    The workflow fails before it builds if the tag and `pyproject.toml` do not match.
+   The tag must point at a commit on `main`, or the workflow fails.
 5. Check the new release on <https://pypi.org/project/textual-console/>, then
    repeat the clean-venv check with `pip install textual-console`.
