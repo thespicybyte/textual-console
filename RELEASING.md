@@ -33,8 +33,10 @@ token is stored anywhere.
 ## Release steps
 
 1. Make sure `version` in `pyproject.toml` and `CHANGELOG.md` are right, and CI is green on `main`.
-2. Publish to TestPyPI: Actions, Release, **Run workflow** on `main`.
-3. Check the TestPyPI upload in a clean venv:
+2. Run the manual checks in `docs/manual-testing.md` in herdr and at least one other
+   terminal. Record the results in its table.
+3. Publish to TestPyPI: Actions, Release, **Run workflow** on `main`.
+4. Check the TestPyPI upload in a clean venv:
 
    ```bash
    python -m venv /tmp/tc-check && . /tmp/tc-check/bin/activate
@@ -44,7 +46,7 @@ token is stored anywhere.
    ```
 
    TestPyPI cannot replace a file. If you must fix something, raise the version.
-4. Tag and push. The tag must be `v` plus the version, for example `v0.1.0`:
+5. Tag and push. The tag must be `v` plus the version, for example `v0.1.0`:
 
    ```bash
    git tag v0.1.0
@@ -53,5 +55,5 @@ token is stored anywhere.
 
    The workflow fails before it builds if the tag and `pyproject.toml` do not match.
    The tag must point at a commit on `main`, or the workflow fails.
-5. Check the new release on <https://pypi.org/project/textual-console/>, then
+6. Check the new release on <https://pypi.org/project/textual-console/>, then
    repeat the clean-venv check with `pip install textual-console`.

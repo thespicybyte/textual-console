@@ -261,30 +261,8 @@ whether it worked. `ctrl+c` is the reliable key. `cmd+c` reaches the app only on
 terminals with the kitty keyboard protocol. Native terminal selection (shift-drag or
 option-drag) is not changed.
 
-The columns are the manual checks of the demo (`python -m textual_console`):
-
-1. **Select + MMB:** select text in the output, then middle-click the prompt.
-2. **No selection + MMB:** middle-click the prompt with no selection.
-3. **Outside + MMB:** middle-click with text copied in another app.
-4. **Outside + shift+MMB:** shift+middle-click with text copied in another app.
-5. **Terminal paste:** paste multi-line text with `cmd+v` or `ctrl+shift+v`.
-6. **shift+enter / alt+enter reported?:** press each key in the prompt. Does it insert a
-   newline (reported) or submit (shift+enter arrives as Enter)?
-
-Expected results: 1 pastes the selection (all lines), 2 pastes the last app copy, 3 shows
-if the terminal sends the click to the app, 4 is the terminal paste, 5 keeps all lines and
-the prompt grows, 6 shows which newline keys your terminal can send.
-
-| Terminal | OSC 52 copy | Select + MMB | No selection + MMB | Outside + MMB | Outside + shift+MMB | Terminal paste | shift+enter / alt+enter reported? |
-|---|---|---|---|---|---|---|---|
-| iTerm2 | untested | untested | untested | untested | untested | untested | untested |
-| kitty | untested | untested | untested | untested | untested | untested | untested |
-| WezTerm | untested | untested | untested | untested | untested | untested | untested |
-| Ghostty | untested | untested | untested | untested | untested | untested | untested |
-| VS Code terminal | untested | untested | untested | untested | untested | untested | untested |
-| tmux | untested | untested | untested | untested | untested | untested | untested |
-| macOS Terminal.app | untested (expected to fail) | untested | untested | untested | untested | untested | untested |
-| herdr | untested | untested | untested | untested | untested | untested | shift+enter = Enter (submits); alt+enter untested |
+Maintainers test these things by hand in each terminal. The steps and the results table
+are in [docs/manual-testing.md](docs/manual-testing.md).
 
 **tmux:** add `set -g set-clipboard on` to `~/.tmux.conf`. Without it, OSC 52 copy does
 not reach the outer terminal. Some terminals limit the size of the copied text or ask

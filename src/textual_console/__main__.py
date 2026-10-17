@@ -73,23 +73,9 @@ COMMANDS = tuple(PARSERS)
 """The commands of the demo."""
 
 HINTS = """\
-[b]Manual checks[/b]
-1. Drag, double-click, triple-click in the output. ctrl+c copies (a notification shows).
-2. Select text in the output, then middle-click the prompt: the selection is pasted.
-   Select several lines: ALL lines are pasted.
-3. With no selection, middle-click the prompt: the last app copy is pasted.
-4. Copy text in ANOTHER app, then middle-click the prompt: does the app get
-   the click, or does the terminal paste?
-5. Copy text in ANOTHER app, then shift+middle-click the prompt: the terminal
-   pastes by itself.
-6. Paste or ctrl+v several lines (try "colors" output): the prompt grows up to 10
-   rows, then scrolls; up/down move between rows. Enter runs each line as a command.
-7. shift+enter / alt+enter / ctrl+j insert a newline (shift+enter only in
-   terminals that report it).
-8. Tab after a command (for example "flood ") shows its options and a hint.
-   Type until nothing matches: does an empty dropdown stay open?
-9. Esc Esc (quickly) clears the prompt; ctrl+z brings it back.
-Commands: {commands}. Try "flood 500 --style red" with --max-lines, and "flood -h"."""
+Try: drag / double / triple-click to select, ctrl+c copy, middle-click paste, Tab complete,
+shift+enter newline, Esc Esc clear.
+Commands: {commands}; add -h for help."""
 """The hints that are shown under the output."""
 
 
