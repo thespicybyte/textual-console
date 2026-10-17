@@ -5,12 +5,14 @@ from __future__ import annotations
 from typing import Any, Self
 
 from rich.segment import Segment
+from rich.style import Style as RichStyle
 from rich.text import Text
 from textual import events
 from textual.geometry import Offset, Size
 from textual.message import Message
 from textual.selection import Selection
 from textual.strip import Strip
+from textual.style import Style as VisualStyle
 from textual.widgets import RichLog
 
 from textual_console._console_log import ConsoleLog
@@ -451,8 +453,8 @@ class ConsoleOutput(RichLog, can_focus=False):
     ) -> Strip:
         """Apply the selection style to a span of a line.
 
-        The style is a Rich *post* style, because the segments of the line
-        already have a background.
+        The selection style is blended over the style of each segment, so
+        translucent theme colors keep the text color and tint the background.
 
         Args:
             strip: The visible part of the line.
@@ -474,14 +476,31 @@ class ConsoleOutput(RichLog, can_focus=False):
             return strip
         before, middle, after = strip.divide([first, last, width])
         component = "console-output--selection"
-        if self.get_component_styles(component).has_any_rules(
-            "background", "color", "text_style"
-        ):
-            style = self.get_component_rich_style(component)
-        else:
-            style = self.screen.get_component_rich_style("screen--selection")
+        styles = self.get_component_styles(component)
+        if not styles.has_any_rules("background", "color", "text_style"):
+            styles = self.screen.get_component_styles("screen--selection")
+        selection_style = VisualStyle.from_styles(styles)
+        cache: dict[RichStyle | None, RichStyle] = {}
+
+        def blend(style: RichStyle | None) -> RichStyle:
+            # The theme colors can be translucent (the default foreground is
+            # transparent). Flattening them first would paint the text in the
+            # highlight color, so blend them over each segment style instead.
+            blended = cache.get(style)
+            if blended is None:
+                base = VisualStyle.from_rich_style(style or RichStyle.null())
+                blended = (style or RichStyle.null()) + (
+                    base + selection_style
+                ).rich_style
+                cache[style] = blended
+            return blended
+
         selected = Strip(
-            Segment.apply_style(middle, post_style=style), middle.cell_length
+            [
+                Segment(seg.text, blend(seg.style), seg.control)
+                for seg in middle
+            ],
+            middle.cell_length,
         )
         return Strip.join([before, selected, after])
 

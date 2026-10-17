@@ -502,3 +502,31 @@ async def test_copy_on_select_once_with_prune_and_scrollbar_mouse_up() -> None:
         await pilot.mouse_up(ConsoleOutput, offset=(scrollbar_x, 2))
         await pilot.pause()
         assert len(app.copied) == 1
+
+
+def _luminance(color: object) -> float:
+    r, g, b = color.triplet  # type: ignore[attr-defined]
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+async def test_selected_text_stays_readable_in_themes() -> None:
+    for theme in ("textual-dark", "textual-light"):
+        app = OutputApp()
+        app.theme = theme
+        async with app.run_test() as pilot:
+            output = app.query_one(ConsoleOutput)
+            output.write(Text("plain"))
+            output.write(Text("colored", style="#ff8800"))
+            await pilot.pause()
+            for line, expected in ((0, None), (1, "#ff8800")):
+                output.select_line(line)
+                style = next(
+                    s.style for s in output.render_line(line) if s.text.strip()
+                )
+                assert style.color is not None and style.bgcolor is not None
+                assert style.color != style.bgcolor
+                gap = abs(_luminance(style.color) - _luminance(style.bgcolor))
+                if expected is None:
+                    assert gap > 60, (theme, line, style)
+                else:
+                    assert style.color.triplet.hex == expected
