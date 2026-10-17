@@ -1,6 +1,7 @@
 """Console widgets for Textual."""
 
 from textual_console._ansi import strip_ansi
+from textual_console._argparse import ArgparseCompleter, set_completer
 from textual_console._autocomplete import (
     CommandAutoComplete,
     CommandItem,
@@ -12,6 +13,7 @@ from textual_console._console_output import ConsoleOutput
 from textual_console._history import CommandHistory
 
 __all__ = [
+    "ArgparseCompleter",
     "CommandAutoComplete",
     "CommandHistory",
     "CommandItem",
@@ -19,5 +21,6 @@ __all__ = [
     "ConsoleInput",
     "ConsoleLog",
     "ConsoleOutput",
+    "set_completer",
     "strip_ansi",
 ]
