@@ -262,7 +262,7 @@ terminals with the kitty keyboard protocol. Native terminal selection (shift-dra
 option-drag) is not changed.
 
 Maintainers test these things by hand in each terminal. The steps and the results table
-are in [docs/manual-testing.md](docs/manual-testing.md).
+are in [docs/manual-testing.md](https://github.com/thespicybyte/textual-console/blob/main/docs/manual-testing.md).
 
 **tmux:** add `set -g set-clipboard on` to `~/.tmux.conf`. Without it, OSC 52 copy does
 not reach the outer terminal. Some terminals limit the size of the copied text or ask
