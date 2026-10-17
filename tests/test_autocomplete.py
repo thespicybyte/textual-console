@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 from textual.app import App, ComposeResult
 from textual.pilot import Pilot
-from textual_autocomplete import AutoComplete
+from textual.widgets import Button
+from textual_autocomplete import AutoComplete, DropdownItem
 
-from textual_console import CommandAutoComplete, CommandHistory, ConsoleInput
+from textual_console import (
+    CommandAutoComplete,
+    CommandHistory,
+    CommandItem,
+    CompletionHint,
+    ConsoleInput,
+)
 
 SnapCompare = Callable[..., bool]
 FILES = ["readme.md", "notes.txt", "my file.txt"]
@@ -15,18 +22,35 @@ COMMANDS = ["hello", "help", "exit"]
 
 
 class CompleteApp(App[None]):
-    def __init__(self, candidates: list[str], history: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        candidates: Sequence[str | DropdownItem],
+        history: list[str] | None = None,
+        tab_moves_focus: bool = False,
+    ) -> None:
         super().__init__()
         self.candidates = candidates
+        self.tab_moves_focus = tab_moves_focus
         self.entries = history or []
         self.lines: list[str] = []
 
     def compose(self) -> ComposeResult:
-        yield ConsoleInput(id="prompt", history=CommandHistory(self.entries))
+        yield ConsoleInput(
+            id="prompt",
+            history=CommandHistory(self.entries),
+            tab_moves_focus=self.tab_moves_focus,
+        )
+        if self.tab_moves_focus:
+            yield Button("other")
         yield CommandAutoComplete("#prompt", lambda line: self.candidates)
 
     def on_console_input_submitted(self, message: ConsoleInput.Submitted) -> None:
         self.lines.append(message.value)
+
+
+def option_texts(app: App[None]) -> list[str]:
+    options = app.query_one(AutoComplete).option_list.options
+    return [o.prompt.plain for o in options]  # type: ignore[union-attr]
 
 
 def dropdown_open(app: App[None]) -> bool:
@@ -186,7 +210,14 @@ async def test_recalled_multi_line_value_stays_closed() -> None:
 def test_adapter_overrides_match_the_pinned_autocomplete() -> None:
     # CommandAutoComplete overrides private methods of textual-autocomplete,
     # which is pinned to <4.1. If an upgrade changes one, fail here.
-    for name in ("target", "_listen_to_messages", "_complete", "_get_target_state"):
+    for name in (
+        "target",
+        "_listen_to_messages",
+        "_complete",
+        "_get_target_state",
+        "_rebuild_options",
+        "_handle_target_update",
+    ):
         base = inspect.getattr_static(AutoComplete, name)
         ours = inspect.getattr_static(CommandAutoComplete, name)
         if isinstance(base, property):
@@ -245,3 +276,228 @@ async def test_escape_then_down_walks_history_without_dropdown() -> None:
         await pilot.pause()
         assert prompt.value == "he"
         assert not app.query_one(AutoComplete).display
+
+
+async def test_tab_after_space_opens_dropdown() -> None:
+    app = CompleteApp(["read", "write"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "open --mode "
+        await pilot.pause()
+        assert not dropdown_open(app)
+        await pilot.press("tab")
+        assert dropdown_open(app)
+        assert option_texts(app) == ["read", "write"]
+        assert prompt.value == "open --mode "
+        await pilot.press("down", "tab")
+        assert prompt.value == "open --mode write "
+        assert app.focused is prompt
+
+
+async def test_tab_on_a_word_opens_dropdown_after_escape() -> None:
+    app = CompleteApp(COMMANDS)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("h", "e", "escape")
+        assert not dropdown_open(app)
+        await pilot.press("tab")
+        assert dropdown_open(app)
+        assert option_texts(app) == ["hello", "help"]
+
+
+async def test_tab_with_one_candidate_applies_it() -> None:
+    app = CompleteApp(["only"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "go "
+        await pilot.pause()
+        await pilot.press("tab")
+        assert prompt.value == "go only "
+        assert not dropdown_open(app)
+        assert app.focused is prompt
+
+
+async def test_tab_with_no_candidates_falls_through() -> None:
+    app = CompleteApp([])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "go "
+        await pilot.pause()
+        await pilot.press("tab")
+        assert not dropdown_open(app)
+        assert app.focused is prompt
+    app = CompleteApp([], tab_moves_focus=True)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("tab")
+        assert app.focused is not prompt
+
+
+async def test_tab_with_candidates_keeps_focus_when_tab_moves_focus() -> None:
+    app = CompleteApp(["a", "b"], tab_moves_focus=True)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("tab")
+        assert dropdown_open(app)
+        assert app.focused is prompt
+
+
+async def test_tab_mid_line_does_not_open() -> None:
+    app = CompleteApp(["a", "b"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "go x"
+        prompt.cursor_position = 1
+        await pilot.pause()
+        await pilot.press("tab")
+        assert not dropdown_open(app)
+
+
+async def test_typing_after_tab_open_uses_automatic_rules() -> None:
+    app = CompleteApp(["read", "write"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "go "
+        await pilot.pause()
+        await pilot.press("tab")
+        assert dropdown_open(app)
+        await pilot.press("space")
+        await pilot.pause()
+        assert not dropdown_open(app)
+
+
+async def test_command_item_shows_help_and_applies_value_only() -> None:
+    items = [CommandItem("hello", "Say hello"), CommandItem("help", "Show help")]
+    app = CompleteApp(items)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        assert items[0].value == "hello"
+        await pilot.press("h", "e", "l", "l")
+        await pilot.pause()
+        assert option_texts(app) == ["hello  Say hello"]
+        await pilot.press("tab")
+        assert prompt.value == "hello "
+
+
+async def test_command_item_help_survives_filtering_and_prefix() -> None:
+    items = [CommandItem("hello", "Say hello", prefix=">"), CommandItem("exit", "Quit")]
+    app = CompleteApp(items)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("e", "x")
+        await pilot.pause()
+        assert option_texts(app) == ["exit  Quit"]
+    app = CompleteApp(items)
+    async with app.run_test() as pilot:
+        app.query_one(ConsoleInput).focus()
+        await pilot.press("h", "e")
+        await pilot.pause()
+        assert option_texts(app) == [">hello  Say hello"]
+
+
+async def test_hint_is_first_and_never_applied() -> None:
+    hint = CompletionHint("MODE: open mode")
+    assert hint.value == "MODE: open mode"
+    app = CompleteApp([CommandItem("r"), hint, CommandItem("w")])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "open "
+        await pilot.pause()
+        await pilot.press("tab")
+        option_list = app.query_one(AutoComplete).option_list
+        assert option_texts(app) == ["MODE: open mode", "r", "w"]
+        assert option_list.highlighted == 1
+        await pilot.press("up")
+        assert option_list.highlighted == 2
+        await pilot.press("down")
+        assert option_list.highlighted == 1
+        await pilot.press("enter")
+        assert prompt.value == "open r "
+        assert app.lines == []
+
+
+async def test_hint_is_not_filtered_by_the_search() -> None:
+    app = CompleteApp([CompletionHint("NAME: a name"), "alpha", "beta"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("a", "l")
+        await pilot.pause()
+        assert option_texts(app) == ["NAME: a name", "alpha"]
+        assert app.query_one(AutoComplete).option_list.highlighted == 1
+
+
+async def test_hint_only_dropdown_enter_submits_and_tab_does_nothing() -> None:
+    app = CompleteApp([CompletionHint("FILE: the file")], tab_moves_focus=True)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "open "
+        await pilot.pause()
+        assert not dropdown_open(app)
+        await pilot.press("tab")
+        assert app.query_one(AutoComplete).display
+        assert option_texts(app) == ["FILE: the file"]
+        await pilot.press("tab")
+        assert prompt.value == "open "
+        assert app.focused is prompt
+        assert app.query_one(AutoComplete).display
+        await pilot.press("enter")
+        assert app.lines == ["open "]
+        assert not app.query_one(AutoComplete).display
+
+
+async def test_hint_is_not_shown_while_typing_without_candidates() -> None:
+    app = CompleteApp([CompletionHint("FILE: the file")])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("o", "p")
+        await pilot.pause()
+        assert not app.query_one(AutoComplete).display
+
+
+async def _open_dropdown_with_help(pilot: Pilot[None]) -> None:
+    prompt = pilot.app.query_one(ConsoleInput)
+    prompt.focus()
+    prompt.value = "open "
+    await pilot.pause()
+    await pilot.press("tab")
+    await pilot.pause()
+
+
+def _help_app() -> CompleteApp:
+    return CompleteApp(
+        [
+            CompletionHint("MODE: how to open"),
+            CommandItem("read", "Open read-only"),
+            CommandItem("write", "Open for writing"),
+        ]
+    )
+
+
+def test_dropdown_help_and_hint_dark(snap_compare: SnapCompare) -> None:
+    app = _help_app()
+    app.theme = "textual-dark"
+    assert snap_compare(
+        app, run_before=_open_dropdown_with_help, terminal_size=(40, 10)
+    )
+
+
+def test_dropdown_help_and_hint_light(snap_compare: SnapCompare) -> None:
+    app = _help_app()
+    app.theme = "textual-light"
+    assert snap_compare(
+        app, run_before=_open_dropdown_with_help, terminal_size=(40, 10)
+    )

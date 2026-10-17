@@ -5,6 +5,8 @@ def test_import() -> None:
     assert textual_console.__all__ == [
         "CommandAutoComplete",
         "CommandHistory",
+        "CommandItem",
+        "CompletionHint",
         "ConsoleInput",
         "ConsoleLog",
         "ConsoleOutput",
