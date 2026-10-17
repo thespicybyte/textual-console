@@ -157,7 +157,8 @@ class ConsoleInput(TextArea):
 
         Raises:
             ValueError: If ``max_height`` is not ``None`` and is less than 1, or
-                ``double_escape_clear`` is not ``None`` and is not more than 0.
+                ``double_escape_clear`` is not ``None`` and is not a number
+                more than 0.
             TypeError: If ``double_escape_clear`` is a ``bool``.
         """
         window = _check_window(double_escape_clear)
@@ -206,7 +207,7 @@ class ConsoleInput(TextArea):
         """The seconds within which two Escape presses clear the text, or ``None``.
 
         Raises:
-            ValueError: When set to a number that is not more than 0.
+            ValueError: When set to a value that is not a number more than 0.
             TypeError: When set to a ``bool``.
         """
         return self._double_escape_clear
@@ -362,7 +363,7 @@ class ConsoleInput(TextArea):
     def action_double_escape_clear(self) -> None:
         """Clear the text on a second Escape, or pass the key on."""
         window = self._double_escape_clear
-        if window is None or not self.text:
+        if window is None or self.read_only or not self.text:
             self._first_escape = None
             raise SkipAction()
         now = _monotonic()

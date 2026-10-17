@@ -741,7 +741,8 @@ async def test_clear_posts_only_changed(clock: Clock) -> None:
         await pilot.pause()
         assert app.changes == 1
         assert "Changed" in seen
-        assert "Submitted" not in seen
+        # Key and Callback are the key press itself and Textual's own plumbing.
+        assert set(seen) <= {"Key", "Callback", "Changed", "SelectionChanged"}
 
 
 async def test_double_escape_disabled(clock: Clock) -> None:
@@ -779,3 +780,14 @@ async def test_double_escape_custom_window(clock: Clock) -> None:
         clock.now += 0.9
         await pilot.press("escape")
         assert prompt.value == ""
+
+
+async def test_double_escape_ignores_read_only_input(clock: Clock) -> None:
+    app = EscapeApp(read_only=True)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.load_text("keep")
+        prompt.focus()
+        await pilot.press("escape", "escape")
+        assert prompt.value == "keep"
+        assert app.probed == 2
