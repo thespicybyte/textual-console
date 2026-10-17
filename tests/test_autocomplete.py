@@ -226,6 +226,14 @@ def test_adapter_overrides_match_the_pinned_autocomplete() -> None:
         assert callable(base) and callable(ours), name
         base_params = list(inspect.signature(base).parameters)
         assert base_params == list(inspect.signature(ours).parameters), name
+    assert list(inspect.signature(AutoComplete._handle_target_update).parameters) == [
+        "self"
+    ]
+    assert list(inspect.signature(AutoComplete._rebuild_options).parameters) == [
+        "self",
+        "target_state",
+        "search_string",
+    ]
     assert list(inspect.signature(AutoComplete._complete).parameters) == [
         "self",
         "option_index",
@@ -501,3 +509,88 @@ def test_dropdown_help_and_hint_light(snap_compare: SnapCompare) -> None:
     assert snap_compare(
         app, run_before=_open_dropdown_with_help, terminal_size=(40, 10)
     )
+
+
+async def test_two_hints_first_highlight_is_a_candidate() -> None:
+    app = CompleteApp(
+        [CompletionHint("A: one"), CompletionHint("B: two"), "x", "y"],
+    )
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "go "
+        await pilot.pause()
+        await pilot.press("tab")
+        option_list = app.query_one(AutoComplete).option_list
+        assert option_list.highlighted == 2
+        await pilot.press("up")
+        assert option_list.highlighted == 3
+        await pilot.press("down")
+        assert option_list.highlighted == 2
+        await pilot.press("enter")
+        assert prompt.value == "go x "
+        assert app.lines == []
+
+
+async def test_disabled_candidate_is_not_selectable() -> None:
+    app = CompleteApp([DropdownItem("off", disabled=True)])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "go "
+        await pilot.pause()
+        await pilot.press("tab")
+        assert prompt.value == "go "
+    app = CompleteApp([DropdownItem("off", disabled=True), "on", "one"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "go "
+        await pilot.pause()
+        await pilot.press("tab")
+        assert app.query_one(AutoComplete).option_list.highlighted == 1
+        await pilot.press("enter")
+        assert prompt.value == "go on "
+
+
+async def test_help_starts_in_one_column() -> None:
+    app = CompleteApp(
+        [CommandItem("--mode", "Mode"), CommandItem("-v", "Verbose"), "plain"]
+    )
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "go "
+        await pilot.pause()
+        await pilot.press("tab")
+        texts = option_texts(app)
+        assert texts[0].index("Mode") == texts[1].index("Verbose") == len("--mode") + 2
+        await pilot.press("down", "tab")
+        assert prompt.value == "go -v "
+
+
+async def test_escape_on_hint_only_dropdown_hides_it() -> None:
+    app = CompleteApp([CompletionHint("FILE: the file")], tab_moves_focus=True)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "open "
+        await pilot.pause()
+        await pilot.press("tab")
+        assert app.query_one(AutoComplete).display
+        await pilot.press("escape")
+        assert not app.query_one(AutoComplete).display
+        assert prompt.value == "open "
+        assert app.focused is prompt
+
+
+async def test_tab_with_unclosed_quote_does_not_open() -> None:
+    app = CompleteApp(["a", "b"], tab_moves_focus=True)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = 'go "x'
+        await pilot.pause()
+        await pilot.press("tab")
+        assert not dropdown_open(app)
+        assert app.focused is not prompt

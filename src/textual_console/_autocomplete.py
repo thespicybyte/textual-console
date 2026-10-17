@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable
 from operator import itemgetter
 from typing import Any
 
+from rich.cells import cell_len
 from textual import events
 from textual.content import Content
 from textual.widgets import TextArea
@@ -21,6 +22,10 @@ from textual_console._tokens import last_token_span
 
 CandidateSource = Callable[[str], Iterable[str | DropdownItem]]
 """A function that gets the full line and returns the possible completions."""
+
+
+def _width(prefix: Content | None, main: Content) -> int:
+    return cell_len(main.plain) + (cell_len(prefix.plain) if prefix else 0)
 
 
 class CommandItem(DropdownItem):
@@ -43,6 +48,7 @@ class CommandItem(DropdownItem):
         *,
         id: str | None = None,  # noqa: A002
         disabled: bool = False,
+        column: int = 0,
     ) -> None:
         """Create the item.
 
@@ -52,6 +58,9 @@ class CommandItem(DropdownItem):
             prefix: Text shown before the value, such as an icon.
             id: The option ID.
             disabled: Whether the option cannot be chosen.
+            column: The cell where the help starts. The dropdown sets it so the
+                help of all rows lines up. The help always follows the value by
+                at least two cells.
         """
         main = Content(value) if isinstance(value, str) else value
         left = Content(prefix) if isinstance(prefix, str) else prefix
@@ -60,7 +69,8 @@ class CommandItem(DropdownItem):
             parts.append(left)
         parts.append(main)
         if help:
-            parts.extend(["  ", (help, "dim")])
+            gap = max(2, column - _width(left, main))
+            parts.extend([" " * gap, (help, "dim")])
         Option.__init__(self, Content.assemble(*parts), id, disabled)
         self.main = main
         self.prefix = left
@@ -166,12 +176,19 @@ class CommandAutoComplete(AutoComplete):
         elif isinstance(event, events.Key) and event.key in {"up", "down"}:
             self._skip_hint(1 if event.key == "down" else -1)
 
+    @staticmethod
+    def _is_selectable(option: Option) -> bool:
+        return (
+            isinstance(option, DropdownItem)
+            and not isinstance(option, CompletionHint)
+            and not option.disabled
+        )
+
     def _selectable(self) -> list[DropdownItem]:
         return [
             option
             for option in self.option_list.options
-            if isinstance(option, DropdownItem)
-            and not isinstance(option, CompletionHint)
+            if isinstance(option, DropdownItem) and self._is_selectable(option)
         ]
 
     def _only_hints(self) -> bool:
@@ -193,8 +210,12 @@ class CommandAutoComplete(AutoComplete):
         highlighted = option_list.highlighted
         if highlighted is None or option_list.option_count < 2:
             return
-        if isinstance(option_list.get_option_at_index(highlighted), CompletionHint):
-            option_list.highlighted = (highlighted + step) % option_list.option_count
+        count = option_list.option_count
+        for _ in range(count):
+            if self._is_selectable(option_list.get_option_at_index(highlighted)):
+                break
+            highlighted = (highlighted + step) % count
+        option_list.highlighted = highlighted
 
     def _open_with_tab(self, event: events.Key) -> bool:
         """Open the dropdown for the current word. Return whether Tab was used."""
@@ -229,7 +250,7 @@ class CommandAutoComplete(AutoComplete):
             return
         option = self.option_list.get_option_at_index(option_index)
         assert isinstance(option, DropdownItem)
-        if isinstance(option, CompletionHint):
+        if not self._is_selectable(option):
             return
         with self.prevent(TextArea.Changed):
             self.apply_completion(option.value, self._get_target_state())
@@ -291,7 +312,7 @@ class CommandAutoComplete(AutoComplete):
         hints = [item for item in candidates if isinstance(item, CompletionHint)]
         others = [item for item in candidates if not isinstance(item, CompletionHint)]
         if not search_string:
-            return hints + others
+            return hints + self._align_help(others)
         scored: list[tuple[DropdownItem, float]] = []
         for item in others:
             score, offsets = self.match(search_string, item.value)
@@ -308,7 +329,26 @@ class CommandAutoComplete(AutoComplete):
                 )
             scored.append((hit, score))
         scored.sort(key=itemgetter(1), reverse=True)
-        return hints + [item for item, _ in scored]
+        return hints + self._align_help([item for item, _ in scored])
+
+    @staticmethod
+    def _align_help(items: list[DropdownItem]) -> list[DropdownItem]:
+        """Start the help text of all command items in the same cell."""
+        commands = [item for item in items if isinstance(item, CommandItem)]
+        column = max((_width(c.prefix, c.main) + 2 for c in commands), default=0)
+        return [
+            CommandItem(
+                item.main,
+                item.help,
+                item.prefix,
+                id=item.id,
+                disabled=item.disabled,
+                column=column,
+            )
+            if isinstance(item, CommandItem)
+            else item
+            for item in items
+        ]
 
     def should_show_dropdown(self, search_string: str) -> bool:
         """Decide whether to show the dropdown.
