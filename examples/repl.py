@@ -26,11 +26,11 @@ class ReplApp(App[None]):
             log_path: A file for the plain-text transcript, or ``None``.
         """
         super().__init__()
-        self._log = ConsoleLog(log_path) if log_path is not None else None
+        self._transcript = ConsoleLog(log_path) if log_path is not None else None
 
     def compose(self) -> ComposeResult:
         """Create the output, the prompt and the autocomplete."""
-        yield ConsoleOutput(id="output", max_lines=5000, log=self._log)
+        yield ConsoleOutput(id="output", max_lines=5000, log=self._transcript)
         yield ConsoleInput(placeholder="command", id="prompt")
         yield CommandAutoComplete("#prompt", lambda _line: COMMANDS)
 
@@ -50,8 +50,8 @@ class ReplApp(App[None]):
 
     def on_unmount(self) -> None:
         """Close the transcript."""
-        if self._log is not None:
-            self._log.close()
+        if self._transcript is not None:
+            self._transcript.close()
 
 
 if __name__ == "__main__":
