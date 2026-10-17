@@ -263,10 +263,10 @@ class CommandAutoComplete(AutoComplete):
         # not fit below. The options are rebuilt after this call, so their
         # height is only known after the next refresh.
         super()._align_to_target()
-        self._flip_above_if_needed()
-        self.call_after_refresh(self._flip_above_if_needed)
+        self._place_vertically()
+        self.call_after_refresh(self._place_vertically)
 
-    def _flip_above_if_needed(self) -> None:
+    def _place_vertically(self) -> None:
         offset = self.absolute_offset
         if offset is None or not self.display:
             return

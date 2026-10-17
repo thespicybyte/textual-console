@@ -129,12 +129,15 @@ async def test_demo_dropdown_stays_on_screen() -> None:
 async def test_dropdown_returns_below_when_options_shrink() -> None:
     app = ConsoleDemo()
     async with app.run_test(size=(100, 34)) as pilot:
-        await pilot.press("tab")
+        await pilot.press("c")
         await pilot.pause()
         dropdown = app.query_one(CommandAutoComplete)
         prompt = app.query_one(ConsoleInput)
+        assert dropdown.region.height == 3
         assert dropdown.region.bottom == prompt.cursor_screen_offset.y
-        await pilot.press("q")
+        # Change the options while the cursor stays on the same cell.
+        prompt.text = "q"
+        prompt.move_cursor((0, 1))
         await pilot.pause()
         assert dropdown.region.height == 1
         assert dropdown.region.y == prompt.cursor_screen_offset.y + 1
