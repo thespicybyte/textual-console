@@ -73,8 +73,8 @@ COMMANDS = tuple(PARSERS)
 """The commands of the demo."""
 
 HINTS = """\
-Try: drag / double / triple-click to select, ctrl+c copy, middle-click paste, Tab complete,
-shift+enter newline, Esc Esc clear.
+Try: drag / double / triple-click to select, ctrl+c copy, middle-click paste,
+Tab complete, shift+enter newline, Esc Esc clear.
 Commands: {commands}; add -h for help."""
 """The hints that are shown under the output."""
 
