@@ -151,7 +151,6 @@ def test_plus_nargs_and_option_values() -> None:
 
 
 def test_double_dash_positionals_only() -> None:
-    complete = ArgparseCompleter({"open": make_parser()}, hints=False)
     parser = argparse.ArgumentParser(prog="p")
     parser.add_argument("--opt")
     parser.add_argument("word", choices=["-x", "y"])
@@ -211,7 +210,7 @@ def test_live_mapping() -> None:
     assert complete("") == []
     parsers["open"] = make_parser()
     assert values(complete("")) == ["open"]
-    assert values(complete("open --m")) == ["--mode", "-m"] or True
+    assert "--mode" in values(complete("open --m"))
 
 
 def test_set_completer_and_plain_attribute() -> None:
@@ -293,3 +292,50 @@ def test_never_exits_or_prints(
         complete(line)
     captured = capsys.readouterr()
     assert captured.out == captured.err == ""
+
+
+def test_append_const_extend_and_hidden_store_actions() -> None:
+    parser = argparse.ArgumentParser(prog="p")
+    parser.add_argument("--add", action="append_const", const=1)
+    parser.add_argument("--ext", action="extend", nargs="+")
+    parser.add_argument("--flag", action="store_true")
+    parser.add_argument("--const", action="store_const", const=1)
+    complete = ArgparseCompleter({"p": parser}, hints=False)
+    assert values(complete("p --")) == ["--add", "--ext", "--flag", "--const"]
+    shown = values(complete("p --add --ext a b --flag --const --"))
+    assert shown == ["--add", "--ext"]
+
+
+def test_plus_positional() -> None:
+    parser = argparse.ArgumentParser(prog="p")
+    parser.add_argument("names", nargs="+", choices=["a", "b"])
+    parser.add_argument("--opt")
+    complete = ArgparseCompleter({"p": parser}, hints=False)
+    assert values(complete("p ")) == ["a", "b"]
+    assert values(complete("p a b ")) == ["a", "b"]
+    assert values(complete("p a --opt x ")) == ["a", "b"]
+
+
+def test_subcommand_help_falls_back_to_description() -> None:
+    root = argparse.ArgumentParser(prog="r")
+    sub = root.add_subparsers()
+    sub.add_parser("one", description="Described one.\nMore.")
+    sub.add_parser("two", help="Helped two", description="ignored")
+    items = ArgparseCompleter(root, hints=False)("")
+    helps = {i.value: i.help for i in items if isinstance(i, CommandItem)}
+    assert helps == {"one": "Described one.", "two": "Helped two"}
+
+
+def test_broken_internals_degrade(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    def broken(parser: argparse.ArgumentParser) -> list[argparse.Action]:
+        raise AttributeError("_actions")
+
+    monkeypatch.setattr("textual_console._argparse._actions", broken)
+    complete = ArgparseCompleter({"open": make_parser()})
+    assert values(complete("")) == ["open"]
+    with caplog.at_level(logging.ERROR):
+        assert complete("open --") == []
+    assert "internals" in caplog.text
+    assert ArgparseCompleter(make_root())("") == []

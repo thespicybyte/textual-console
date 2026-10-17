@@ -258,9 +258,9 @@ class ArgparseCompleter:
     - the command names, with the first line of each description as help;
     - the ``choices`` or the completer of an option or positional that
       expects a value, also after ``--option=``;
-    - the options that are not used yet, with their help. ``append`` and
-      ``count`` options stay available, a used member of a mutually
-      exclusive group hides the others, and ``-h`` and options with
+    - the options that are not used yet, with their help. ``append``,
+      ``append_const``, ``extend`` and ``count`` options stay available, a used
+      member of a mutually exclusive group hides the others, and ``-h`` and options with
       ``help=argparse.SUPPRESS`` are hidden;
     - the next positional, counted with ``nargs``, or the names of the
       subcommands. After a lone ``--`` only positionals are offered.
@@ -320,9 +320,15 @@ class ArgparseCompleter:
             current = (shlex.split(line[start:]) or [""])[0]
         except ValueError:
             return []
-        if isinstance(self._parsers, Mapping):
-            return self._complete_mapping(self._parsers, words, current)
-        return self._complete(self._parsers, words, current)
+        try:
+            if isinstance(self._parsers, Mapping):
+                return self._complete_mapping(self._parsers, words, current)
+            return self._complete(self._parsers, words, current)
+        except AttributeError:
+            _log.exception("argparse changed its internals; completion is reduced")
+            if isinstance(self._parsers, Mapping) and not words:
+                return self._command_names(self._parsers)
+            return []
 
     def _complete_mapping(
         self,
@@ -331,13 +337,18 @@ class ArgparseCompleter:
         current: str,
     ) -> list[DropdownItem]:
         if not words:
-            items: list[DropdownItem] = [
-                CommandItem(name, _first_line(parser.description))
-                for name, parser in parsers.items()
-            ]
-            return items
+            return self._command_names(parsers)
         parser = parsers.get(words[0])
         return self._complete(parser, words[1:], current) if parser else []
+
+    @staticmethod
+    def _command_names(
+        parsers: Mapping[str, argparse.ArgumentParser],
+    ) -> list[DropdownItem]:
+        return [
+            CommandItem(name, _first_line(parser.description))
+            for name, parser in parsers.items()
+        ]
 
     def _complete(
         self, parser: argparse.ArgumentParser, words: list[str], current: str
