@@ -1,5 +1,6 @@
 """Command prompt widget with history."""
 
+import time
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -16,6 +17,21 @@ from textual.widgets import TextArea
 from textual.widgets.text_area import Document, Selection
 
 from textual_console._history import CommandHistory
+
+_monotonic = time.monotonic
+"""The clock of the double Escape. Tests replace it."""
+
+
+def _check_window(value: float | None) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise TypeError("double_escape_clear must be a number or None, not a bool")
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"double_escape_clear must be a number, not {value!r}")
+    if value <= 0:
+        raise ValueError(f"double_escape_clear must be more than 0, not {value}")
+    return value
 
 
 class ConsoleInput(TextArea):
@@ -36,7 +52,8 @@ class ConsoleInput(TextArea):
     ``prompt`` is drawn in the left gutter on the first row. Other rows get blank
     padding of the same width. It is not part of the text, and the
     ``console-input--prompt`` component class styles it. ``suggester`` shows
-    ghost text after the cursor, and the right key accepts it.
+    ghost text after the cursor, and the right key accepts it. Two Escape presses
+    within ``double_escape_clear`` seconds clear the text. ctrl+z brings it back.
 
     The text is the :attr:`value`. Changes are posted as
     :class:`textual.widgets.TextArea.Changed`.
@@ -69,6 +86,7 @@ class ConsoleInput(TextArea):
         Binding("up", "cursor_up_or_history", show=False),
         Binding("down", "cursor_down_or_history", show=False),
         Binding("tab", "tab", show=False),
+        Binding("escape", "double_escape_clear", show=False),
     ]
 
     prompt: reactive[str] = reactive("", init=False)
@@ -100,6 +118,7 @@ class ConsoleInput(TextArea):
         tab_moves_focus: bool = False,
         max_height: int | None = 10,
         suggester: Suggester | None = None,
+        double_escape_clear: float | None = 0.5,
         **text_area_kwargs: Any,  # noqa: ANN401
     ) -> None:
         """Create a console input.
@@ -125,6 +144,11 @@ class ConsoleInput(TextArea):
             suggester: A Textual suggester. While the text is one line and the
                 cursor is at its end, the suggestion is shown as ghost text
                 after the cursor, and the right key accepts it.
+            double_escape_clear: Two Escape presses within this many seconds
+                clear the text. The clear is an edit, so ctrl+z undoes it. An
+                Escape that closes an autocomplete dropdown does not count.
+                ``None`` turns the feature off. Available as
+                :attr:`double_escape_clear`.
             **text_area_kwargs: Other arguments for
                 :class:`textual.widgets.TextArea`, such as ``id``, ``classes``
                 or ``compact``. The arguments that make a ``TextArea`` an editor
@@ -132,8 +156,11 @@ class ConsoleInput(TextArea):
                 are fixed here.
 
         Raises:
-            ValueError: If ``max_height`` is not ``None`` and is less than 1.
+            ValueError: If ``max_height`` is not ``None`` and is less than 1, or
+                ``double_escape_clear`` is not ``None`` and is not more than 0.
+            TypeError: If ``double_escape_clear`` is a ``bool``.
         """
+        window = _check_window(double_escape_clear)
         if max_height is not None and max_height < 1:
             raise ValueError(f"max_height must be at least 1, not {max_height}")
         super().__init__(
@@ -164,6 +191,8 @@ class ConsoleInput(TextArea):
 
         It is applied when the widget is mounted. Changing it later does nothing.
         """
+        self._double_escape_clear = window
+        self._first_escape: float | None = None
         self._paste_text = ""
         self.recalled_value: str | None = None
         """The text that came from the history, or ``None``.
@@ -171,6 +200,21 @@ class ConsoleInput(TextArea):
         It is set by :meth:`recall`. It is not cleared by this widget when the
         user edits the text: compare it with :attr:`value`.
         """
+
+    @property
+    def double_escape_clear(self) -> float | None:
+        """The seconds within which two Escape presses clear the text, or ``None``.
+
+        Raises:
+            ValueError: When set to a number that is not more than 0.
+            TypeError: When set to a ``bool``.
+        """
+        return self._double_escape_clear
+
+    @double_escape_clear.setter
+    def double_escape_clear(self, value: float | None) -> None:
+        self._double_escape_clear = _check_window(value)
+        self._first_escape = None
 
     def _on_mount(self, event: events.Mount) -> None:
         # The cursor was moved to the end before the widget had a size.
@@ -315,7 +359,32 @@ class ConsoleInput(TextArea):
         if self.clear_on_submit:
             self.value = ""
 
+    def action_double_escape_clear(self) -> None:
+        """Clear the text on a second Escape, or pass the key on."""
+        window = self._double_escape_clear
+        if window is None or not self.text:
+            self._first_escape = None
+            raise SkipAction()
+        now = _monotonic()
+        first = self._first_escape
+        if first is None or now - first > window:
+            # The first press goes on to the screen, which clears the output
+            # selection, and to the app's own Escape bindings.
+            self._first_escape = now
+            raise SkipAction()
+        # The key is consumed here, but the screen already got its copy of it
+        # as the key was posted to the parent. That is harmless: the first
+        # press cleared any output selection.
+        self._first_escape = None
+        self.history.checkpoint()
+        self.clear()
+        self.command_history.reset()
+        self.recalled_value = None
+        self.suggestion = ""
+
     async def _on_key(self, event: events.Key) -> None:
+        if event.key != "escape":
+            self._first_escape = None
         # TextArea._on_key inserts a newline for Enter, and Textual calls it
         # after this method. Preventing the default stops that, and leaving the
         # event unstopped lets it reach the ``enter`` binding. An open dropdown

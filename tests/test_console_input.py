@@ -536,3 +536,246 @@ async def test_case_insensitive_suggester() -> None:
         assert prompt.suggestion == "rtugal"
         await pilot.press("right")
         assert prompt.value == "portugal"
+
+
+class EscapeApp(InputApp):
+    """An app whose own ``escape`` binding counts the presses that reach it."""
+
+    BINDINGS = [("escape", "probe", "probe")]
+
+    def __init__(self, **input_kwargs: object) -> None:
+        super().__init__(**input_kwargs)
+        self.probed = 0
+        self.changes = 0
+
+    def action_probe(self) -> None:
+        self.probed += 1
+
+    def on_text_area_changed(self) -> None:
+        self.changes += 1
+
+
+class Clock:
+    def __init__(self) -> None:
+        self.now = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+@pytest.fixture
+def clock(monkeypatch: pytest.MonkeyPatch) -> Clock:
+    fake = Clock()
+    monkeypatch.setattr("textual_console._console_input._monotonic", fake)
+    return fake
+
+
+async def test_double_escape_clears(clock: Clock) -> None:
+    app = EscapeApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("a", "b", "escape")
+        assert prompt.value == "ab"
+        assert app.probed == 1
+        clock.now += 0.3
+        await pilot.press("escape")
+        assert prompt.value == ""
+        assert app.probed == 1
+
+
+async def test_first_escape_clears_output_selection(clock: Clock) -> None:
+    app = EscapeApp()
+    async with app.run_test() as pilot:
+        output = app.query_one(ConsoleOutput)
+        output.write("hello world")
+        await pilot.pause()
+        output.screen.selections = {output: Selection(Offset(6, 0), Offset(11, 0))}
+        app.query_one(ConsoleInput).focus()
+        await pilot.press("a", "escape")
+        await pilot.pause()
+        assert not output.screen.selections
+        assert app.probed == 1
+
+
+async def test_slow_second_escape_becomes_first(clock: Clock) -> None:
+    app = EscapeApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("a", "escape")
+        clock.now += 0.8
+        await pilot.press("escape")
+        assert prompt.value == "a"
+        assert app.probed == 2
+        clock.now += 0.2
+        await pilot.press("escape")
+        assert prompt.value == ""
+
+
+async def test_other_key_resets_escape_count(clock: Clock) -> None:
+    app = EscapeApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("a", "escape", "x", "escape")
+        assert prompt.value == "ax"
+        assert app.probed == 2
+
+
+async def test_escape_on_empty_input_is_not_consumed(clock: Clock) -> None:
+    app = EscapeApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("escape", "escape", "escape")
+        assert app.probed == 3
+        assert prompt.value == ""
+
+
+async def _dropdown_app(candidates: list[object]) -> EscapeApp:
+    from textual_console import CommandAutoComplete
+
+    class DropdownEscapeApp(EscapeApp):
+        def compose(self) -> ComposeResult:
+            yield from super().compose()
+            yield CommandAutoComplete("#prompt", lambda line: candidates)  # type: ignore[arg-type,return-value]
+
+    return DropdownEscapeApp()
+
+
+@pytest.mark.parametrize("hint_only", [False, True])
+async def test_escape_closing_dropdown_does_not_count(
+    clock: Clock, hint_only: bool
+) -> None:
+    from textual_autocomplete import AutoComplete
+
+    from textual_console import CompletionHint
+
+    app = await _dropdown_app(
+        [CompletionHint("NAME: a name")] if hint_only else ["hello"]
+    )
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        if hint_only:
+            prompt.value = "open "
+            await pilot.pause()
+            await pilot.press("tab")
+        else:
+            await pilot.press("h", "e")
+        await pilot.pause()
+        assert app.query_one(AutoComplete).display
+        await pilot.press("escape")
+        await pilot.pause()
+        assert not app.query_one(AutoComplete).display
+        assert app.probed == 0
+        assert prompt.value != ""
+        await pilot.press("escape")
+        assert app.probed == 1
+        assert prompt.value != ""
+        await pilot.press("escape")
+        assert prompt.value == ""
+
+
+async def test_clear_is_undoable(clock: Clock) -> None:
+    app = EscapeApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("a", "b", "shift+enter", "c", "d")
+        text = prompt.value
+        assert "\n" in text
+        await pilot.press("escape", "escape")
+        assert prompt.value == ""
+        await pilot.press("ctrl+z")
+        assert prompt.value == text
+
+
+async def test_clear_ends_history_walk(clock: Clock) -> None:
+    app = EscapeApp(history=CommandHistory(["one", "two"]))
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("up", "up")
+        assert prompt.value == "one"
+        await pilot.press("escape", "escape")
+        assert prompt.value == ""
+        assert prompt.recalled_value is None
+        await pilot.press("up")
+        assert prompt.value == "two"
+        await pilot.press("down")
+        assert prompt.value == ""
+
+
+async def test_clear_removes_ghost_text(clock: Clock) -> None:
+    app = EscapeApp(suggester=SuggestFromList(["hello"]))
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("h", "e")
+        await pilot.pause()
+        assert prompt.suggestion
+        await pilot.press("escape", "escape")
+        await pilot.pause()
+        assert prompt.suggestion == ""
+
+
+async def test_clear_posts_only_changed(clock: Clock) -> None:
+    app = EscapeApp()
+    seen: list[str] = []
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("a")
+        await pilot.pause()
+        app.changes = 0
+        original = prompt.post_message
+
+        def spy(message: object) -> bool:
+            seen.append(type(message).__name__)
+            return original(message)  # type: ignore[arg-type]
+
+        prompt.post_message = spy  # type: ignore[method-assign]
+        await pilot.press("escape", "escape")
+        await pilot.pause()
+        assert app.changes == 1
+        assert "Changed" in seen
+        assert "Submitted" not in seen
+
+
+async def test_double_escape_disabled(clock: Clock) -> None:
+    app = EscapeApp(double_escape_clear=None)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("a", "escape", "escape", "escape")
+        assert prompt.value == "a"
+        assert app.probed == 3
+
+
+def test_double_escape_validation() -> None:
+    for bad in (0, -1, "0.5"):
+        with pytest.raises(ValueError):
+            ConsoleInput(double_escape_clear=bad)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        ConsoleInput(double_escape_clear=True)
+    prompt = ConsoleInput()
+    assert prompt.double_escape_clear == 0.5
+    with pytest.raises(ValueError):
+        prompt.double_escape_clear = 0
+    with pytest.raises(TypeError):
+        prompt.double_escape_clear = True
+    prompt.double_escape_clear = None
+    assert prompt.double_escape_clear is None
+
+
+async def test_double_escape_custom_window(clock: Clock) -> None:
+    app = EscapeApp(double_escape_clear=1.0)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("a", "escape")
+        clock.now += 0.9
+        await pilot.press("escape")
+        assert prompt.value == ""

@@ -98,6 +98,7 @@ prompt = ConsoleInput(prompt="> ", history=history, max_height=10)
 | shift+enter, alt+enter, ctrl+j | Insert a newline. |
 | Up, down | Move the cursor between rows. On the first row up walks the history, and on the last row down does. |
 | Tab | Nothing, so the focus stays in the prompt. Use `tab_moves_focus=True` to move the focus. |
+| Esc Esc | Clear the input if both presses come within `double_escape_clear` seconds (default 0.5). Undo with ctrl+z. An Escape that closes the dropdown does not count. |
 | Right | Accept the ghost text of a `suggester`. |
 
 - `prompt` is drawn in the left gutter of the first row. It is not part of the text. Other

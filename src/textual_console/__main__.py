@@ -88,6 +88,7 @@ HINTS = """\
    terminals that report it).
 8. Tab after a command (for example "flood ") shows its options and a hint.
    Type until nothing matches: does an empty dropdown stay open?
+9. Esc Esc (quickly) clears the prompt; ctrl+z brings it back.
 Commands: {commands}. Try "flood 500 --style red" with --max-lines, and "flood -h"."""
 """The hints that are shown under the output."""
 
