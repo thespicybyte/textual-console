@@ -174,7 +174,7 @@ class ConsoleInput(TextArea):
 
     def _on_mount(self, event: events.Mount) -> None:
         # The cursor was moved to the end before the widget had a size.
-        self._recompute_cursor_offset()  # type: ignore[no-untyped-call]
+        self.call_after_refresh(self.scroll_cursor_visible)
         if self.max_height is not None:
             self.styles.max_height = self.max_height + self.gutter.height
 
@@ -217,13 +217,26 @@ class ConsoleInput(TextArea):
             return
         self.run_worker(self.suggester._get_suggestion(self, value), exclusive=True)
 
+    def _watch_selection(
+        self, previous_selection: Selection, selection: Selection
+    ) -> None:
+        super()._watch_selection(previous_selection, selection)
+        # Ghost text belongs to a cursor at the end of the text.
+        if not selection.is_empty or selection.end != self.document.end:
+            self.suggestion = ""
+
     def _on_suggestion_ready(self, event: SuggestionReady) -> None:
         value = self.value
+        suggestion = event.suggestion
+        if self.suggester is not None and not self.suggester.case_sensitive:
+            matches = suggestion.casefold().startswith(value.casefold())
+        else:
+            matches = suggestion.startswith(value)
         if (
             event.value == value
             and self.document.line_count == 1
             and self.cursor_location == self.document.end
-            and event.suggestion.startswith(value)
+            and matches
         ):
             self.suggestion = event.suggestion[len(value) :]
         else:

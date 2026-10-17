@@ -509,3 +509,30 @@ async def test_no_suggester_no_suggestion() -> None:
         await pilot.press("h", "e")
         await pilot.pause()
         assert prompt.suggestion == ""
+
+
+async def test_suggestion_cleared_when_cursor_moves_away() -> None:
+    app = SuggestApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("h", "e", "l", "l")
+        await pilot.pause()
+        assert prompt.suggestion == "o"
+        await pilot.press("left")
+        assert prompt.suggestion == ""
+        await pilot.press("right")
+        assert prompt.value == "hell"
+        assert prompt.cursor_location == (0, 4)
+
+
+async def test_case_insensitive_suggester() -> None:
+    app = PromptApp(suggester=SuggestFromList(["Portugal"], case_sensitive=False))
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "o")
+        await pilot.pause()
+        assert prompt.suggestion == "rtugal"
+        await pilot.press("right")
+        assert prompt.value == "portugal"
