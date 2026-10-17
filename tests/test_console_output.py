@@ -366,7 +366,7 @@ async def test_mouse_up_arrives_before_click() -> None:
         output.select_word_at = spy_select  # type: ignore[method-assign]
         await pilot.click(ConsoleOutput, offset=(7, 0), times=2)
         await pilot.pause()
-        assert order.index("clear") < order.index("select")
+        assert order[-2:] == ["clear", "select"]
         assert output.selected_text == "brave"
 
 
@@ -403,3 +403,102 @@ async def test_wide_characters_select_and_highlight() -> None:
         await pilot.click(ConsoleOutput, offset=(12, 0), times=2)
         await pilot.pause()
         assert output.selected_text == "cd"
+
+
+class StyledApp(OutputApp):
+    CSS = "ConsoleOutput > .console-output--selection { background: #ff0000; }"
+
+
+def selected_bg(output: ConsoleOutput) -> object:
+    strip = output.render_line(0)
+    return next(
+        s.style.bgcolor
+        for s in strip
+        if s.style is not None and s.text.strip() == "hello"
+    )
+
+
+async def test_highlight_uses_component_style_when_set() -> None:
+    app = StyledApp()
+    async with app.run_test() as pilot:
+        output = app.query_one(ConsoleOutput)
+        output.write("hello world")
+        await pilot.pause()
+        output.select_word_at(Offset(1, 0))
+        bg = selected_bg(output)
+        assert bg is not None
+        assert bg.triplet is not None and bg.triplet.hex == "#ff0000"  # type: ignore[attr-defined]
+
+
+async def test_highlight_falls_back_to_screen_selection() -> None:
+    class ScreenStyled(OutputApp):
+        CSS = "Screen > .screen--selection { background: #00ff00; }"
+
+    app = ScreenStyled()
+    async with app.run_test() as pilot:
+        output = app.query_one(ConsoleOutput)
+        output.write("hello world")
+        await pilot.pause()
+        output.select_word_at(Offset(1, 0))
+        bg = selected_bg(output)
+        assert bg.triplet.hex == "#00ff00"  # type: ignore[attr-defined]
+
+
+async def test_clear_drops_selection() -> None:
+    app = OutputApp()
+    async with app.run_test() as pilot:
+        output = app.query_one(ConsoleOutput)
+        output.write("hello world")
+        await pilot.pause()
+        output.select_line(0)
+        assert output.clear() is output
+        output.write("new text")
+        await pilot.pause()
+        assert output.text_selection is None
+        assert output.selected_text is None
+
+
+async def test_selection_shift_keeps_sibling_selections() -> None:
+    from textual.widgets import Static
+
+    class Sibling(OutputApp):
+        def compose(self) -> ComposeResult:
+            yield from super().compose()
+            yield Static("sibling text")
+
+    app = Sibling(max_lines=3)
+    async with app.run_test() as pilot:
+        output = app.query_one(ConsoleOutput)
+        static = app.query_one(Static)
+        for i in range(3):
+            output.write(f"line {i}")
+        await pilot.pause()
+        output.screen.selections = {
+            output: Selection(Offset(0, 2), Offset(4, 2)),
+            static: Selection(None, None),
+        }
+        output.write("line 3")
+        assert static in output.screen.selections
+        assert output.text_selection == Selection(Offset(0, 1), Offset(4, 1))
+
+
+async def test_copy_on_select_once_with_prune_and_scrollbar_mouse_up() -> None:
+    app = OutputApp(copy_on_select=True, max_lines=20)
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = app.query_one(ConsoleOutput)
+        for i in range(20):
+            output.write(f"line {i}")
+        await pilot.pause()
+        await pilot.mouse_down(ConsoleOutput, offset=(0, 5))
+        await pilot.hover(ConsoleOutput, offset=(4, 5))
+        await pilot.mouse_up(ConsoleOutput, offset=(4, 5))
+        await pilot.pause()
+        assert len(app.copied) == 1
+        output.write("line 20")
+        await pilot.pause()
+        # A MouseUp that does not clear the selection (a scrollbar press).
+        scrollbar_x = output.region.right - 1
+        await pilot.mouse_down(ConsoleOutput, offset=(scrollbar_x, 2))
+        await pilot.mouse_up(ConsoleOutput, offset=(scrollbar_x, 2))
+        await pilot.pause()
+        assert len(app.copied) == 1

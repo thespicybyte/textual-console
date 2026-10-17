@@ -28,8 +28,8 @@ class ConsoleOutput(RichLog, can_focus=False):
 
     The widget cannot take focus by default, so keyboard focus stays on the
     prompt of the app. To change the highlight color, style the
-    ``console-output--selection`` component class. By default it uses the
-    theme colors of ``screen--selection``.
+    ``console-output--selection`` component class. If the app does not style
+    it, the highlight uses ``screen--selection`` (the theme colors).
 
     Copied text has one line for each rendered line, without trailing spaces.
     With ``wrap=True`` that means the visual lines.
@@ -50,11 +50,6 @@ class ConsoleOutput(RichLog, can_focus=False):
         background: $surface;
         color: $foreground;
         overflow-y: scroll;
-
-        & > .console-output--selection {
-            background: $screen-selection-background;
-            color: $screen-selection-foreground;
-        }
     }
     """
 
@@ -139,7 +134,7 @@ class ConsoleOutput(RichLog, can_focus=False):
 
     def write(
         self,
-        content: Any,  # noqa: ANN401
+        content: object,
         width: int | None = None,
         expand: bool = False,
         shrink: bool = True,
@@ -305,12 +300,26 @@ class ConsoleOutput(RichLog, can_focus=False):
         start, end = selection
         if end is not None and end.y - lines < 0:
             self.clear_selection()
+            self._copied_selection = None
             return
         if start is not None:
             start = Offset(0, 0) if start.y - lines < 0 else start - Offset(0, lines)
         if end is not None:
             end = end - Offset(0, lines)
-        self._set_selection(Selection(start, end))
+        shifted = Selection(start, end)
+        if self._copied_selection == selection:
+            self._copied_selection = shifted
+        self.screen.selections = {**self.screen.selections, self: shifted}
+
+    def clear(self) -> Self:
+        """Remove all lines and clear the selection of this widget.
+
+        Returns:
+            The widget, so calls can be chained.
+        """
+        self.clear_selection()
+        super().clear()
+        return self
 
     def get_selection(self, selection: Selection) -> tuple[str, str] | None:
         """Get the text under a selection.
@@ -345,7 +354,7 @@ class ConsoleOutput(RichLog, can_focus=False):
         Args:
             selection: The new selection, or ``None`` if it was cleared.
         """
-        if selection is None:
+        if self.text_selection is None:
             self._copied_selection = None
         self.refresh()
 
@@ -403,7 +412,13 @@ class ConsoleOutput(RichLog, can_focus=False):
         if last <= first:
             return strip
         before, middle, after = strip.divide([first, last, width])
-        style = self.get_component_rich_style("console-output--selection")
+        component = "console-output--selection"
+        if self.get_component_styles(component).has_any_rules(
+            "background", "color", "text_style"
+        ):
+            style = self.get_component_rich_style(component)
+        else:
+            style = self.screen.get_component_rich_style("screen--selection")
         selected = Strip(
             Segment.apply_style(middle, post_style=style), middle.cell_length
         )
