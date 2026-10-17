@@ -1,6 +1,9 @@
 """Demo app. Run it with ``python -m textual_console``."""
 
 import argparse
+import contextlib
+import io
+import shlex
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -12,26 +15,80 @@ from textual.app import App, ComposeResult
 from textual.widgets import Footer, Static
 
 from textual_console import (
+    ArgparseCompleter,
     CommandAutoComplete,
     ConsoleInput,
     ConsoleLog,
     ConsoleOutput,
 )
 
-COMMANDS = ("help", "colors", "table", "ansi", "flood", "clear", "echo", "quit")
-"""The commands of the demo. They are also the autocomplete candidates."""
+COLORS = ("red", "green", "yellow", "blue", "magenta", "cyan")
+"""The colors of the ``colors`` command."""
+
+
+def _build_parsers() -> dict[str, argparse.ArgumentParser]:
+    """Describe the commands of the demo with argparse parsers.
+
+    The same parsers drive the completion and the parsing of a command line.
+    """
+
+    def parser(name: str, description: str) -> argparse.ArgumentParser:
+        return argparse.ArgumentParser(prog=name, description=description)
+
+    parsers = {
+        "help": parser("help", "Show the commands"),
+        "colors": parser("colors", "Write text in some colors"),
+        "table": parser("table", "Write a Rich table"),
+        "ansi": parser("ansi", "Write text with ANSI escape codes"),
+        "flood": parser("flood", "Write many lines to check the scrollback"),
+        "clear": parser("clear", "Clear the output"),
+        "echo": parser("echo", "Write the text to the output"),
+        "quit": parser("quit", "Leave the demo"),
+    }
+    parsers["colors"].add_argument(
+        "--only", nargs="+", choices=COLORS, metavar="COLOR", help="show only these"
+    )
+    parsers["flood"].add_argument(
+        "count",
+        nargs="?",
+        type=int,
+        default=200,
+        metavar="COUNT",
+        help="how many lines",
+    )
+    parsers["flood"].add_argument(
+        "--style",
+        choices=("plain", "red", "green"),
+        default="plain",
+        help="the style of the lines",
+    )
+    parsers["echo"].add_argument("text", nargs="*", metavar="TEXT", help="the words")
+    return parsers
+
+
+PARSERS = _build_parsers()
+"""The parsers of the commands of the demo, by command name."""
+
+COMMANDS = tuple(PARSERS)
+"""The commands of the demo."""
 
 HINTS = """\
 [b]Manual checks[/b]
 1. Drag, double-click, triple-click in the output. ctrl+c copies (a notification shows).
 2. Select text in the output, then middle-click the prompt: the selection is pasted.
+   Select several lines: ALL lines are pasted.
 3. With no selection, middle-click the prompt: the last app copy is pasted.
 4. Copy text in ANOTHER app, then middle-click the prompt: does the app get
    the click, or does the terminal paste?
 5. Copy text in ANOTHER app, then shift+middle-click the prompt: the terminal
    pastes by itself.
-6. Paste multi-line text with cmd+v / ctrl+shift+v: only the first line is kept.
-Commands: {commands}. Use "flood 500" with --max-lines to check the cap."""
+6. Paste or ctrl+v several lines (try "colors" output): the prompt grows up to 10
+   rows, then scrolls; up/down move between rows. Enter runs each line as a command.
+7. shift+enter / alt+enter / ctrl+j insert a newline (shift+enter only in
+   terminals that report it).
+8. Tab after a command (for example "flood ") shows its options and a hint.
+   Type until nothing matches: does an empty dropdown stay open?
+Commands: {commands}. Try "flood 500 --style red" with --max-lines, and "flood -h"."""
 """The hints that are shown under the output."""
 
 
@@ -73,8 +130,10 @@ class ConsoleDemo(App[None]):
             markup=False,
         )
         yield Static(HINTS.format(commands=", ".join(COMMANDS)), id="hints")
-        yield ConsoleInput(placeholder="type a command, then press enter", id="prompt")
-        yield CommandAutoComplete("#prompt", lambda _line: COMMANDS)
+        yield ConsoleInput(
+            prompt="> ", placeholder="type a command, then press enter", id="prompt"
+        )
+        yield CommandAutoComplete("#prompt", ArgparseCompleter(PARSERS))
         yield Footer()
 
     def on_mount(self) -> None:
@@ -110,16 +169,48 @@ class ConsoleDemo(App[None]):
         self.notify(f"Transcript failed: {event.error}", severity="error")
 
     @on(ConsoleInput.Submitted)
-    def _run_command(self, event: ConsoleInput.Submitted) -> None:
+    def _run_submit(self, event: ConsoleInput.Submitted) -> None:
+        # A submit can hold several lines. This app runs each non-blank line as a
+        # command: that is the app's choice, ConsoleInput only gives the text.
+        for line in event.value.splitlines():
+            if line.strip():
+                self._run_line(line)
+
+    def _run_line(self, line: str) -> None:
         output = self.query_one(ConsoleOutput)
-        line = event.value
         # The command is echoed into the output, so it also reaches the transcript.
         output.write(Text(f"> {line}", style="bold green"))
-        name, _, rest = line.strip().partition(" ")
+        try:
+            words = shlex.split(line)
+        except ValueError as error:
+            output.write(Text(f"Error: {error}", style="red"))
+            return
+        name, args = words[0], words[1:]
+        parser = PARSERS.get(name)
+        if parser is None:
+            output.write(Text(f"Unknown command: {name}", style="red"))
+            return
+        # parse_args prints usage and calls sys.exit for -h and for errors. Catch
+        # that, and show the text in the output.
+        buffer = io.StringIO()
+        try:
+            with (
+                contextlib.redirect_stdout(buffer),
+                contextlib.redirect_stderr(buffer),
+            ):
+                namespace = parser.parse_args(args)
+        except SystemExit as exit_:
+            style = "red" if exit_.code else ""
+            output.write(Text(buffer.getvalue().rstrip(), style=style))
+            return
+        self._execute(name, namespace)
+
+    def _execute(self, name: str, args: argparse.Namespace) -> None:
+        output = self.query_one(ConsoleOutput)
         if name == "help":
             output.write(f"Commands: {', '.join(COMMANDS)}")
         elif name == "colors":
-            for colour in ("red", "green", "yellow", "blue", "magenta", "cyan"):
+            for colour in args.only or COLORS:
                 output.write(Text(f"{colour} text", style=colour))
         elif name == "table":
             output.write(self._table())
@@ -128,17 +219,15 @@ class ConsoleDemo(App[None]):
                 "\x1b[1;31mbold red\x1b[0m \x1b[4;32munderlined green\x1b[0m"
             )
         elif name == "flood":
-            count = int(rest) if rest.isdigit() else 200
-            for number in range(1, count + 1):
-                output.write(f"line {number}")
+            style = "" if args.style == "plain" else args.style
+            for number in range(1, args.count + 1):
+                output.write(Text(f"line {number}", style=style))
         elif name == "clear":
             output.clear()
         elif name == "echo":
-            output.write(rest)
+            output.write(" ".join(args.text))
         elif name == "quit":
             self.exit()
-        elif name:
-            output.write(Text(f"Unknown command: {name}", style="red"))
 
     @staticmethod
     def _table() -> Table:

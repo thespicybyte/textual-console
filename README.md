@@ -1,15 +1,17 @@
 # textual-console
 
 Console widgets for [Textual](https://textual.textualize.io/): color output with
-word and line mouse selection and OSC 52 copy, a command input with history and
-autocomplete, and a plain-text transcript.
+word and line mouse selection and OSC 52 copy, a multi-line command input with
+history and autocomplete (also from `argparse` parsers), and a plain-text transcript.
 
 ![The textual-console demo](https://raw.githubusercontent.com/thespicybyte/textual-console/main/docs/demo.svg)
 
 - `ConsoleOutput`: read-only output for Rich renderables. Drag, double-click (word)
   and triple-click (line) select text. `ctrl+c` copies it.
-- `ConsoleInput`: a command prompt with history, a quiet Tab and middle-click paste.
-- `CommandAutoComplete`: completes the last word of the line.
+- `ConsoleInput`: a command prompt (a `TextArea`) that grows with its text, with a prompt
+  string, history, a quiet Tab and middle-click paste.
+- `CommandAutoComplete`: completes the last word of the cursor's line. Tab opens it.
+- `ArgparseCompleter`: gives `CommandAutoComplete` its candidates from `argparse` parsers.
 - `ConsoleLog`: a plain-text transcript file of the output.
 
 Python 3.11 or later. Tested on Textual 8.x.
@@ -40,7 +42,7 @@ from textual_console import CommandAutoComplete, ConsoleInput, ConsoleOutput
 class Repl(App[None]):
     def compose(self) -> ComposeResult:
         yield ConsoleOutput(id="output", max_lines=5000)
-        yield ConsoleInput(placeholder="command", id="prompt")
+        yield ConsoleInput(prompt="> ", placeholder="command", id="prompt")
         yield CommandAutoComplete("#prompt", lambda line: ["help", "quit"])
 
     @on(ConsoleInput.Submitted)
@@ -52,7 +54,7 @@ Repl().run()
 ```
 
 More programs are in [`examples/`](https://github.com/thespicybyte/textual-console/tree/main/examples): `basic.py` (text, tables, copy),
-`repl.py` (all widgets and a transcript) and `ansi_stream.py` (ANSI output of a
+`repl.py` (all widgets, argparse completion and a transcript) and `ansi_stream.py` (ANSI output of a
 subprocess).
 
 ## ConsoleOutput
@@ -82,26 +84,68 @@ output.write_ansi("\x1b[31mred\x1b[0m")
 
 ## ConsoleInput
 
-An `Input` with command history.
+A `TextArea` that works as a command prompt. It is one row high when it is empty, grows
+row by row up to `max_height` rows (the default is 10), and then scrolls.
 
 ```python
 history = CommandHistory(["help", "quit"])
-prompt = ConsoleInput(history=history)
+prompt = ConsoleInput(prompt="> ", history=history, max_height=10)
 ```
 
-- Up and down walk through the history. The first up saves the text you typed, and
-  down past the newest entry restores it.
-- Submit records the command, clears the input and bubbles `Input.Submitted` as usual.
-- Tab does nothing, so the focus stays in the prompt. Use `tab_moves_focus=True` to
-  move the focus.
-- Save the history with `history.entries`.
+| Key | Action |
+|---|---|
+| Enter | Submit the whole text as one command. |
+| shift+enter, alt+enter, ctrl+j | Insert a newline. |
+| Up, down | Move the cursor between rows. On the first row up walks the history, and on the last row down does. |
+| Tab | Nothing, so the focus stays in the prompt. Use `tab_moves_focus=True` to move the focus. |
+| Right | Accept the ghost text of a `suggester`. |
+
+- `prompt` is drawn in the left gutter of the first row. It is not part of the text. Other
+  rows get blank padding of the same width. It can change at run time, and the
+  `console-input--prompt` component class styles it.
+- `suggester` is a Textual `Suggester`. While the text is one line and the cursor is at
+  its end, the suggestion shows as ghost text.
+- `max_height` is checked when the widget is created (a value below 1 raises `ValueError`)
+  and applied when the widget is mounted. `max_height=None` sets no limit, so a CSS
+  `max-height` applies.
+- The text is `prompt.value`. The history is `prompt.command_history`, a `CommandHistory`.
+  Save it with `prompt.command_history.entries`.
+- The first up saves the text you typed, and down past the newest entry restores it. A
+  recalled multi-line command is shown with all its rows.
+- Submit records the command, clears the input (unless `clear_on_submit=False`) and posts
+  `ConsoleInput.Submitted` with `value`, the whole text.
+- `ConsoleInput.Changed` is `TextArea.Changed`: use `textual.widgets.TextArea.Changed`.
+- `ConsoleInput` is not an `Input` any more. The arguments that only `Input` has
+  (`password`, `restrict`, `type`, `max_length`, `validators`, `validate_on`,
+  `valid_empty`, `select_on_focus`) raise `TypeError`. The editor settings of `TextArea`
+  (`soft_wrap`, line numbers, `tab_behavior`) are fixed.
+
+### Multi-line text
+
+**Enter submits the whole text, newlines included, as one command.** One submit gives one
+`Submitted` message and one history entry. To run each line as its own command, split the
+value in your handler. This is the choice of your app, not of the widget:
+
+```python
+@on(ConsoleInput.Submitted)
+def run_commands(self, event: ConsoleInput.Submitted) -> None:
+    for line in event.value.splitlines():
+        if line.strip():
+            self.run_command(line)
+```
+
+**Terminals and the newline keys.** Many terminals send `shift+enter` as a plain Enter,
+so the app cannot see the difference. Only terminals with the kitty keyboard protocol (or
+a similar extension) report it. `alt+enter` and `ctrl+j` work in more terminals. Use
+them as the fallback. In herdr, `shift+enter` arrives as Enter and submits.
 
 ### Middle-click paste
 
 **Middle-click pastes text from inside the app.** It pastes the text selected in the
 output. If nothing is selected, it pastes the last text that the app copied.
+**All lines of a multi-line selection are pasted.**
 **To paste text from other apps, use the terminal paste** (`cmd+v` or `ctrl+shift+v`).
-Only the first line of a multi-line paste is kept, because the input has one line.
+It keeps all lines too. `ctrl+v` pastes the same way.
 
 Some terminals use the middle-click for their own paste and do not send it to the
 app. Then you get the terminal paste. The demo shows which one your terminal does.
@@ -112,14 +156,77 @@ app. Then you get the terminal paste. The demo shows which one your terminal doe
 CommandAutoComplete("#prompt", lambda line: ["open", "close", "help"])
 ```
 
-The function gets the full line and returns the options for the last word. The text
-before the last word stays as typed. A completion that needs quotes is quoted.
+The function gets the line of the cursor and returns the options for its last word. The
+text before the last word stays as typed. A completion that needs quotes is quoted. In a
+multi-line input only the cursor's line is used, and a completion changes only that line.
 
+- **Automatic opening:** the dropdown opens while you type a word. It does not open after
+  a space, in an empty line, or while you walk the history.
+- **Tab opens the dropdown** when it is closed, also after a space. If there is one
+  option, Tab applies it at once. If there are none, Tab does what the input does.
 - **Key order:** when the dropdown is open, up and down move in the dropdown, and Tab or
-  Enter accept the option. When it is closed, up and down walk the history. No options
-  are shown while you walk the history.
+  Enter accept the option. When it is closed, up and down move between rows or walk the
+  history.
+- **Items:** a function can return strings, `DropdownItem`s, `CommandItem(value, help)`
+  (shows `help` in a dim second column, aligned) and `CompletionHint(text)` (a dim,
+  disabled row that tells what to type. It is never applied).
 - **The candidate source is synchronous.** It runs on the event loop. If the source is
   slow (files, network), cache the result.
+- The package needs `textual-autocomplete` 4.0.x, because `CommandAutoComplete` overrides
+  some of its private methods.
+
+## Argparse completion
+
+`ArgparseCompleter` reads `argparse` parsers and gives the candidates for the word at the
+cursor. It never calls `parse_args`, so nothing prints and nothing exits.
+
+```python
+import argparse
+
+from textual_console import ArgparseCompleter, CommandAutoComplete, set_completer
+
+flood = argparse.ArgumentParser(prog="flood", description="Write many lines")
+flood.add_argument("count", nargs="?", type=int, metavar="COUNT", help="how many lines")
+flood.add_argument("--style", choices=["plain", "red", "green"], help="line style")
+open_ = argparse.ArgumentParser(prog="open", description="Open a file")
+set_completer(open_.add_argument("file", metavar="FILE", help="the file"), list_files)
+
+parsers = {"flood": flood, "open": open_}
+CommandAutoComplete("#prompt", ArgparseCompleter(parsers))
+```
+
+- Describe the commands with a mapping `{name: parser}` (read on every call, so you can
+  add commands later) or with one root parser that has subparsers.
+- It offers the command names, the options not used yet (with their help), the `choices`
+  of an option or positional (also after `--option=`), and the next positional, counted
+  with `nargs`. It descends into subparsers. After a lone `--` it offers only positionals.
+- `set_completer(action, function)` attaches a function that gets the current word and
+  returns strings or items. It is stored in `action.completer`, the name that
+  `argcomplete` uses. If it raises, there are no candidates and the error is logged.
+- `hints=True` (the default) adds a `CompletionHint` such as `FILE: the file` where the
+  user must type a value. `show_help_option=True` offers `-h` and `--help`.
+- It reads some private `argparse` attributes that have been stable since Python 3.2. If
+  they change, completion is reduced and the error is logged.
+
+**Run the command with the same parsers.** `parse_args` prints for `-h` and on errors, and
+then raises `SystemExit`. Catch it and write the text to the output, so the app keeps
+running:
+
+```python
+import contextlib
+import io
+import shlex
+
+name, *args = shlex.split(line)
+buffer = io.StringIO()
+try:
+    with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
+        namespace = parsers[name].parse_args(args)
+except SystemExit:
+    output.write(buffer.getvalue())
+```
+
+The demo (`python -m textual_console`) does this, so `flood -h` shows the usage.
 
 ## ConsoleLog
 
@@ -152,26 +259,30 @@ whether it worked. `ctrl+c` is the reliable key. `cmd+c` reaches the app only on
 terminals with the kitty keyboard protocol. Native terminal selection (shift-drag or
 option-drag) is not changed.
 
-The paste columns are the manual checks of the demo (`python -m textual_console`):
+The columns are the manual checks of the demo (`python -m textual_console`):
 
 1. **Select + MMB:** select text in the output, then middle-click the prompt.
 2. **No selection + MMB:** middle-click the prompt with no selection.
 3. **Outside + MMB:** middle-click with text copied in another app.
 4. **Outside + shift+MMB:** shift+middle-click with text copied in another app.
 5. **Terminal paste:** paste multi-line text with `cmd+v` or `ctrl+shift+v`.
+6. **shift+enter / alt+enter reported?:** press each key in the prompt. Does it insert a
+   newline (reported) or submit (shift+enter arrives as Enter)?
 
-Expected results: 1 pastes the selection, 2 pastes the last app copy, 3 shows if the
-terminal sends the click to the app, 4 is the terminal paste, 5 keeps the first line.
+Expected results: 1 pastes the selection (all lines), 2 pastes the last app copy, 3 shows
+if the terminal sends the click to the app, 4 is the terminal paste, 5 keeps all lines and
+the prompt grows, 6 shows which newline keys your terminal can send.
 
-| Terminal | OSC 52 copy | Select + MMB | No selection + MMB | Outside + MMB | Outside + shift+MMB | Terminal paste |
-|---|---|---|---|---|---|---|
-| iTerm2 | untested | untested | untested | untested | untested | untested |
-| kitty | untested | untested | untested | untested | untested | untested |
-| WezTerm | untested | untested | untested | untested | untested | untested |
-| Ghostty | untested | untested | untested | untested | untested | untested |
-| VS Code terminal | untested | untested | untested | untested | untested | untested |
-| tmux | untested | untested | untested | untested | untested | untested |
-| macOS Terminal.app | untested (expected to fail) | untested | untested | untested | untested | untested |
+| Terminal | OSC 52 copy | Select + MMB | No selection + MMB | Outside + MMB | Outside + shift+MMB | Terminal paste | shift+enter / alt+enter reported? |
+|---|---|---|---|---|---|---|---|
+| iTerm2 | untested | untested | untested | untested | untested | untested | untested |
+| kitty | untested | untested | untested | untested | untested | untested | untested |
+| WezTerm | untested | untested | untested | untested | untested | untested | untested |
+| Ghostty | untested | untested | untested | untested | untested | untested | untested |
+| VS Code terminal | untested | untested | untested | untested | untested | untested | untested |
+| tmux | untested | untested | untested | untested | untested | untested | untested |
+| macOS Terminal.app | untested (expected to fail) | untested | untested | untested | untested | untested | untested |
+| herdr | untested | untested | untested | untested | untested | untested | shift+enter = Enter (submits); alt+enter untested |
 
 **tmux:** add `set -g set-clipboard on` to `~/.tmux.conf`. Without it, OSC 52 copy does
 not reach the outer terminal. Some terminals limit the size of the copied text or ask

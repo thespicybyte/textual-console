@@ -4,7 +4,7 @@ from types import ModuleType
 
 import pytest
 
-from textual_console import ConsoleInput, ConsoleOutput
+from textual_console import CommandAutoComplete, ConsoleInput, ConsoleOutput
 from textual_console.__main__ import ConsoleDemo, main
 
 EXAMPLES = Path(__file__).parent.parent / "examples"
@@ -55,6 +55,75 @@ async def test_demo_copy_notifies() -> None:
         assert len(app._notifications) == 1
 
 
+async def test_demo_help_option_does_not_exit() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.press(*"flood -h", "enter")
+        await pilot.pause()
+        assert app.is_running
+        text = output_text(app.query_one(ConsoleOutput))
+        assert "usage: flood" in text
+        assert "--style" in text
+
+
+async def test_demo_reports_parse_errors() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.press(*"flood --style purple", "enter")
+        await pilot.press(*"nope", "enter")
+        await pilot.pause()
+        assert app.is_running
+        text = output_text(app.query_one(ConsoleOutput))
+        assert "invalid choice: 'purple'" in text
+        assert "Unknown command: nope" in text
+
+
+async def test_demo_new_commands() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(100, 40)) as pilot:
+        await pilot.press(*"colors --only red blue", "enter")
+        await pilot.press(*"flood 3 --style green", "enter")
+        await pilot.press(*"echo a  b", "enter")
+        await pilot.pause()
+        text = output_text(app.query_one(ConsoleOutput))
+        assert "red text" in text and "blue text" in text
+        assert "green text" not in text
+        assert "line 3" in text
+        assert "\na b" in text
+
+
+async def test_demo_splits_multi_line_submit() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(100, 40)) as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.insert("echo one\n\n  \necho two")
+        await pilot.press("enter")
+        await pilot.pause()
+        lines = output_text(app.query_one(ConsoleOutput)).splitlines()
+        assert lines[-4:] == ["> echo one", "one", "> echo two", "two"]
+        assert prompt.value == ""
+
+
+async def test_demo_prompt_and_tab_dropdown() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(100, 40)) as pilot:
+        assert app.query_one(ConsoleInput).prompt == "> "
+        await pilot.press(*"flood ", "tab")
+        await pilot.pause()
+        assert app.query_one(CommandAutoComplete).display
+
+
+async def test_demo_dropdown_stays_on_screen() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(100, 34)) as pilot:
+        await pilot.press("tab")
+        await pilot.pause()
+        dropdown = app.query_one(CommandAutoComplete)
+        assert dropdown.display
+        assert dropdown.region.bottom <= app.screen.size.height
+        assert dropdown.region.y >= 0
+
+
 def test_main_parses_arguments(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     seen: list[ConsoleDemo] = []
     monkeypatch.setattr(ConsoleDemo, "run", lambda self: seen.append(self))
@@ -78,6 +147,18 @@ async def test_repl_example(tmp_path: Path) -> None:
         await pilot.pause()
         assert "> echo hi" in output_text(app.query_one(ConsoleOutput))
     assert log.read_text().splitlines()[-2:] == ["> echo hi", "hi"]
+
+
+async def test_repl_example_splits_lines_and_shows_help(tmp_path: Path) -> None:
+    app = load_example("repl").ReplApp(tmp_path / "repl.log")
+    async with app.run_test(size=(80, 24)) as pilot:
+        app.query_one(ConsoleInput).insert("echo a\necho -h")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert app.is_running
+        text = output_text(app.query_one(ConsoleOutput))
+        assert "> echo a" in text
+        assert "usage: echo" in text
 
 
 async def test_ansi_stream_example() -> None:
