@@ -1,0 +1,152 @@
+from __future__ import annotations
+
+from collections.abc import Callable
+
+from textual.app import App, ComposeResult
+from textual.pilot import Pilot
+from textual_autocomplete import AutoComplete
+
+from textual_console import CommandAutoComplete, CommandHistory, ConsoleInput
+
+SnapCompare = Callable[..., bool]
+FILES = ["readme.md", "notes.txt", "my file.txt"]
+COMMANDS = ["hello", "help", "exit"]
+
+
+class CompleteApp(App[None]):
+    def __init__(self, candidates: list[str], history: list[str] | None = None) -> None:
+        super().__init__()
+        self.candidates = candidates
+        self.entries = history or []
+        self.lines: list[str] = []
+
+    def compose(self) -> ComposeResult:
+        yield ConsoleInput(id="prompt", history=CommandHistory(self.entries))
+        yield CommandAutoComplete("#prompt", lambda line: self.candidates)
+
+    def on_input_submitted(self, message: ConsoleInput.Submitted) -> None:
+        self.lines.append(message.value)
+
+
+def dropdown_open(app: App[None]) -> bool:
+    complete = app.query_one(AutoComplete)
+    return bool(complete.display and complete.option_list.option_count)
+
+
+async def test_dropdown_open_up_down_and_tab() -> None:
+    app = CompleteApp(COMMANDS)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("h", "e")
+        await pilot.pause()
+        assert dropdown_open(app)
+        option_list = app.query_one(AutoComplete).option_list
+        assert option_list.highlighted == 0
+        await pilot.press("down")
+        assert option_list.highlighted == 1
+        assert prompt.value == "he"
+        await pilot.press("up")
+        assert option_list.highlighted == 0
+        await pilot.press("tab")
+        assert prompt.value == "hello "
+        assert app.focused is prompt
+
+
+async def test_dropdown_open_enter_accepts_without_submit() -> None:
+    app = CompleteApp(COMMANDS)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("e", "x", "enter")
+        assert prompt.value == "exit "
+        assert app.lines == []
+        await pilot.press("enter")
+        assert app.lines == ["exit "]
+        assert prompt.history.entries == ["exit "]
+
+
+async def test_dropdown_closed_up_down_walk_history() -> None:
+    app = CompleteApp(COMMANDS, history=["echo x", "zzz"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("up")
+        await pilot.pause()
+        assert prompt.value == "zzz"
+        await pilot.press("up")
+        await pilot.pause()
+        assert prompt.value == "echo x"
+        await pilot.press("down", "down")
+        await pilot.pause()
+        assert prompt.value == ""
+        assert not dropdown_open(app)
+
+
+async def test_no_suggestions_for_recalled_value() -> None:
+    app = CompleteApp(COMMANDS, history=["he"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("up")
+        await pilot.pause()
+        assert prompt.value == "he"
+        assert not dropdown_open(app)
+        await pilot.press("l")
+        await pilot.pause()
+        assert prompt.recalled_value is None
+        assert dropdown_open(app)
+
+
+async def test_completion_keeps_quoting() -> None:
+    app = CompleteApp(FILES)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = 'open "my file.txt" re'
+        prompt.cursor_position = len(prompt.value)
+        await pilot.pause()
+        assert dropdown_open(app)
+        await pilot.press("tab")
+        assert prompt.value == 'open "my file.txt" readme.md '
+
+
+async def test_completion_quotes_when_needed() -> None:
+    app = CompleteApp(FILES)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        prompt.value = "open my"
+        prompt.cursor_position = len(prompt.value)
+        await pilot.pause()
+        await pilot.press("tab")
+        assert prompt.value == "open 'my file.txt' "
+
+
+async def test_no_suggestions_in_odd_states() -> None:
+    app = CompleteApp(FILES)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        for text in ["", "open ", 'open "re', 'open "x"', "open re\\"]:
+            prompt.value = text
+            prompt.cursor_position = len(text)
+            await pilot.pause()
+            assert not dropdown_open(app), text
+        prompt.value = "open re"
+        prompt.cursor_position = 2
+        await pilot.pause()
+        assert not dropdown_open(app)
+
+
+async def _open_dropdown(pilot: Pilot[None]) -> None:
+    prompt = pilot.app.query_one(ConsoleInput)
+    prompt.focus()
+    await pilot.press("h", "e")
+    await pilot.pause()
+
+
+def test_dropdown_snapshot(snap_compare: SnapCompare) -> None:
+    assert snap_compare(
+        CompleteApp(COMMANDS), run_before=_open_dropdown, terminal_size=(40, 10)
+    )
