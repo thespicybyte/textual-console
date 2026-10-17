@@ -17,8 +17,9 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
       - name: Install
-        run: uv sync --group test --group lint
+        run: uv sync --locked --no-dev --group test --group lint
       - name: Pin textual 8.2.8
         if: matrix.textual == 'pinned'
         run: uv pip install "textual==8.2.8"

@@ -187,6 +187,8 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pyr
 
 Repository: <https://github.com/thespicybyte/textual-console>
 
+For maintainers: see `RELEASING.md` for the release steps.
+
 ## License
 
 MIT. See `LICENSE`.
