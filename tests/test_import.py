@@ -6,6 +6,7 @@ def test_import() -> None:
         "CommandAutoComplete",
         "CommandHistory",
         "ConsoleInput",
+        "ConsoleLog",
         "ConsoleOutput",
         "strip_ansi",
     ]

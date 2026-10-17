@@ -7,12 +7,13 @@ from typing import Any, Self
 from rich.segment import Segment
 from rich.text import Text
 from textual import events
-from textual.geometry import Offset
+from textual.geometry import Offset, Size
 from textual.message import Message
 from textual.selection import Selection
 from textual.strip import Strip
 from textual.widgets import RichLog
 
+from textual_console._console_log import ConsoleLog
 from textual_console._selection import cell_to_char, char_to_cell, line_span
 from textual_console._selection import word_span as _word_span
 
@@ -74,6 +75,27 @@ class ConsoleOutput(RichLog, can_focus=False):
             """The widget that copied the text."""
             return self.console_output
 
+    class LogFailed(Message):
+        """Posted once when the transcript fails. The log is then dropped."""
+
+        def __init__(self, console_output: ConsoleOutput, error: Exception) -> None:
+            """Create the message.
+
+            Args:
+                console_output: The widget whose log failed.
+                error: The error from the log.
+            """
+            super().__init__()
+            self.console_output = console_output
+            """The widget whose log failed."""
+            self.error = error
+            """The error from the log."""
+
+        @property
+        def control(self) -> ConsoleOutput:
+            """The widget whose log failed."""
+            return self.console_output
+
     def __init__(
         self,
         *,
@@ -85,6 +107,7 @@ class ConsoleOutput(RichLog, can_focus=False):
         auto_scroll: bool = True,
         copy_on_select: bool = False,
         word_chars: str = "",
+        log: ConsoleLog | None = None,
         name: str | None = None,
         id: str | None = None,  # noqa: A002
         classes: str | None = None,
@@ -105,6 +128,9 @@ class ConsoleOutput(RichLog, can_focus=False):
                 selection ends, and after a double-click or triple-click.
             word_chars: Characters that count as part of a word, even if they
                 are separators (for example ``"("``).
+            log: Transcript that receives each written line as plain text. If
+                it fails, :class:`LogFailed` is posted once and the log is not
+                used again. :meth:`clear` does not change the file.
             name: Name of the widget.
             id: ID of the widget in the DOM.
             classes: CSS classes of the widget.
@@ -127,6 +153,7 @@ class ConsoleOutput(RichLog, can_focus=False):
         self.word_chars = word_chars
         """Characters that count as part of a word."""
         self._copied_selection: Selection | None = None
+        self._transcript = log
 
     def on_mount(self) -> None:
         """Watch the screen for the end of a mouse selection."""
@@ -161,12 +188,46 @@ class ConsoleOutput(RichLog, can_focus=False):
         """
         start_before = self._start_line
         length_before = len(self.lines)
-        super().write(content, width, expand, shrink, scroll_end, animate)
+        cap = self.max_lines
+        keep_all = self._transcript is not None and cap is not None
+        if keep_all:
+            # Let RichLog keep every new line, so that lines which one write
+            # adds beyond the cap still reach the transcript. They are pruned
+            # below.
+            self.max_lines = None
+        try:
+            super().write(content, width, expand, shrink, scroll_end, animate)
+        finally:
+            if keep_all:
+                self.max_lines = cap
+        new_lines = self.lines[length_before:]
+        if keep_all and cap is not None and len(self.lines) > cap:
+            self._start_line += len(self.lines) - cap
+            self.lines = self.lines[-cap:]
+            self.virtual_size = Size(self.virtual_size.width, len(self.lines))
+            self.refresh()
         pruned = self._start_line - start_before
         added = len(self.lines) - length_before + pruned
         if added or pruned:
             self._lines_changed(added, pruned)
+        if self._transcript is not None and new_lines:
+            self._write_transcript(new_lines)
         return self
+
+    def _write_transcript(self, strips: list[Strip]) -> None:
+        """Send new lines to the transcript, or drop it and post ``LogFailed``."""
+        transcript = self._transcript
+        if transcript is None:
+            return
+        try:
+            transcript.write_lines([strip.text.rstrip() for strip in strips])
+        except (OSError, ValueError) as error:
+            self._transcript = None
+            try:
+                transcript.close()
+            except OSError:
+                pass
+            self.post_message(self.LogFailed(self, error))
 
     def _lines_changed(self, added: int, pruned: int) -> None:
         """Handle lines that ``write`` added to the end and pruned from the top.
