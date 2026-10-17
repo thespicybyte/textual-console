@@ -56,3 +56,6 @@ files = ["src", "tests"]
 
 [tool.pyright]
 include = ["src", "tests"]
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"

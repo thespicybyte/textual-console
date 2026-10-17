@@ -5,6 +5,8 @@ from pathlib import Path
 
 from rich.table import Table
 from textual.app import App, ComposeResult
+from textual.geometry import Offset
+from textual.selection import Selection
 
 from textual_console import ConsoleLog, ConsoleOutput
 
@@ -84,13 +86,20 @@ def test_context_manager_closes(tmp_path: Path) -> None:
 
 
 class LogApp(App[None]):
-    def __init__(self, **kwargs: object) -> None:
+    def __init__(self, early: tuple[str, ...] = (), **kwargs: object) -> None:
         super().__init__()
+        self.early = early
         self.kwargs = kwargs
         self.failures: list[ConsoleOutput.LogFailed] = []
 
     def compose(self) -> ComposeResult:
         yield ConsoleOutput(**self.kwargs)  # type: ignore[arg-type]
+
+    def on_mount(self) -> None:
+        output = self.query_one(ConsoleOutput)
+        for text in self.early:
+            assert not output._size_known
+            output.write(text)
 
     def on_console_output_log_failed(self, message: ConsoleOutput.LogFailed) -> None:
         self.failures.append(message)
@@ -99,16 +108,19 @@ class LogApp(App[None]):
 async def test_each_line_once_in_order_with_deferred_writes(tmp_path: Path) -> None:
     path = tmp_path / "a.log"
     log = ConsoleLog(path)
-    app = LogApp(log=log)
+    app = LogApp(early=("early-1", "early-2"), log=log)
     async with app.run_test() as pilot:
         output = app.query_one(ConsoleOutput)
-        output.write("before-size-1")
-        output.write("before-size-2")
         await pilot.pause()
         output.write("after")
         await pilot.pause()
+        assert [s.text.rstrip() for s in output.lines] == [
+            "early-1",
+            "early-2",
+            "after",
+        ]
     log.close()
-    assert path.read_text().splitlines() == ["before-size-1", "before-size-2", "after"]
+    assert path.read_text().splitlines() == ["early-1", "early-2", "after"]
 
 
 async def test_cap_lines_reach_log_and_are_pruned(tmp_path: Path) -> None:
@@ -177,3 +189,30 @@ async def test_log_failure_posts_once_and_app_keeps_running(tmp_path: Path) -> N
         assert isinstance(app.failures[0].error, OSError)
         assert app.failures[0].control is output
         assert [s.text.rstrip() for s in output.lines] == ["one", "two"]
+
+
+async def test_prune_with_log_moves_selection(tmp_path: Path) -> None:
+    path = tmp_path / "a.log"
+    log = ConsoleLog(path)
+    app = LogApp(log=log, max_lines=5)
+    async with app.run_test() as pilot:
+        output = app.query_one(ConsoleOutput)
+        await pilot.pause()
+        for i in range(5):
+            output.write(f"line {i}")
+        output.select_line(3)
+        output.write("line 5")
+        assert output.selected_text == "line 3"
+        assert output.text_selection == Selection(Offset(0, 2), Offset(6, 2))
+        output.write("line 6\nline 7")
+        assert output.selected_text == "line 3"
+        assert output.text_selection == Selection(Offset(0, 0), Offset(6, 0))
+        output.write("\n".join(f"big {i}" for i in range(8)))
+        assert output.text_selection is None
+        assert [s.text.rstrip() for s in output.lines] == [
+            f"big {i}" for i in range(3, 8)
+        ]
+        assert output.virtual_size.height == 5
+    log.close()
+    expected = [f"line {i}" for i in range(8)] + [f"big {i}" for i in range(8)]
+    assert path.read_text().splitlines() == expected
