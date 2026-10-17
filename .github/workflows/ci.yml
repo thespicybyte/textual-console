@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+        textual: ["pinned", "latest"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: uv sync --group test --group lint
+      - name: Pin textual 8.2.8
+        if: matrix.textual == 'pinned'
+        run: uv pip install "textual==8.2.8"
+      - name: Upgrade textual to latest 8.x
+        if: matrix.textual == 'latest'
+        run: uv pip install --upgrade "textual>=8.2,<9"
+      - name: Ruff lint
+        run: uv run --no-sync ruff check .
+      - name: Ruff format
+        run: uv run --no-sync ruff format --check .
+      - name: Mypy
+        run: uv run --no-sync mypy
+      - name: Pyright
+        run: uv run --no-sync pyright
+      - name: Pytest
+        run: uv run --no-sync pytest
