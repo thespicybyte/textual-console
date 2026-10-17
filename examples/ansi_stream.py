@@ -30,8 +30,11 @@ class AnsiStreamApp(App[None]):
         """Create the output."""
         yield ConsoleOutput(id="output", max_lines=10_000)
 
-    async def on_mount(self) -> None:
-        """Start the command and stream its output."""
+    def on_mount(self) -> None:
+        """Start the stream in a worker, so the app stays responsive."""
+        self.run_worker(self._stream(), exclusive=True)
+
+    async def _stream(self) -> None:
         output = self.query_one(ConsoleOutput)
         process = await asyncio.create_subprocess_exec(
             *self.command,
@@ -39,10 +42,16 @@ class AnsiStreamApp(App[None]):
             stderr=asyncio.subprocess.STDOUT,
         )
         assert process.stdout is not None
-        async for raw in process.stdout:
-            output.write_ansi(raw.decode(errors="replace").rstrip("\n"))
-        await process.wait()
-        output.write(f"[exit {process.returncode}]")
+        try:
+            async for raw in process.stdout:
+                output.write_ansi(raw.decode(errors="replace").rstrip("\n"))
+            await process.wait()
+            output.write(f"[exit {process.returncode}]")
+        finally:
+            # The worker is cancelled when the app exits: stop the command.
+            if process.returncode is None:
+                process.terminate()
+                await process.wait()
 
 
 if __name__ == "__main__":

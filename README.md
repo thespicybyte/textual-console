@@ -4,6 +4,8 @@ Console widgets for [Textual](https://textual.textualize.io/): color output with
 word and line mouse selection and OSC 52 copy, a command input with history and
 autocomplete, and a plain-text transcript.
 
+![The textual-console demo](https://raw.githubusercontent.com/thespicybyte/textual-console/main/docs/demo.svg)
+
 - `ConsoleOutput`: read-only output for Rich renderables. Drag, double-click (word)
   and triple-click (line) select text. `ctrl+c` copies it.
 - `ConsoleInput`: a command prompt with history, a quiet Tab and middle-click paste.
@@ -68,6 +70,9 @@ output.write_ansi("\x1b[31mred\x1b[0m")
 - `ctrl+c` copies the selection with `App.copy_to_clipboard` (OSC 52). `Escape` or a
   single click clears the selection.
 - `copy_on_select=True` copies when a selection ends and posts `ConsoleOutput.SelectionCopied`.
+  `ctrl+c` does not post `SelectionCopied`: only `copy_on_select` and `copy_selection()` do.
+  To react to every copy, override `App.copy_to_clipboard` (the demo does this to show a
+  notification).
 - The widget cannot take focus, so the focus stays on your prompt.
 - Copied text has one line for each rendered line, without trailing spaces.
 - **Set `max_lines` for long-running apps.** The default is no limit, so memory grows
