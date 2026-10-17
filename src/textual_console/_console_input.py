@@ -174,7 +174,7 @@ class ConsoleInput(TextArea):
 
     def _on_mount(self, event: events.Mount) -> None:
         # The cursor was moved to the end before the widget had a size.
-        self._recompute_cursor_offset()
+        self._recompute_cursor_offset()  # type: ignore[no-untyped-call]
         if self.max_height is not None:
             self.styles.max_height = self.max_height + self.gutter.height
 
