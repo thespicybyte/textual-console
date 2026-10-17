@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from rich.color import Color
 from rich.table import Table
 from rich.text import Text
 from textual import events
@@ -505,8 +506,8 @@ async def test_copy_on_select_once_with_prune_and_scrollbar_mouse_up() -> None:
         assert len(app.copied) == 1
 
 
-def _luminance(color: object) -> float:
-    r, g, b = color.triplet  # type: ignore[attr-defined]
+def _luminance(color: Color) -> float:
+    r, g, b = color.get_truecolor()
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
@@ -524,13 +525,15 @@ async def test_selected_text_stays_readable_in_themes() -> None:
                 style = next(
                     s.style for s in output.render_line(line) if s.text.strip()
                 )
-                assert style.color is not None and style.bgcolor is not None
-                assert style.color != style.bgcolor
-                gap = abs(_luminance(style.color) - _luminance(style.bgcolor))
+                assert style is not None
+                color, bgcolor = style.color, style.bgcolor
+                assert color is not None and bgcolor is not None
+                assert color != bgcolor
+                gap = abs(_luminance(color) - _luminance(bgcolor))
                 if expected is None:
                     assert gap > 60, (theme, line, style)
                 else:
-                    assert style.color.triplet.hex == expected
+                    assert color.get_truecolor().hex == expected
 
 
 @pytest.mark.parametrize("value", [0, -1])
