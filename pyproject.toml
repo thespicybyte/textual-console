@@ -1,0 +1,61 @@
+[project]
+name = "textual-console"
+version = "0.1.0"
+description = "Console widgets for Textual: color output with word/line mouse selection and OSC 52 copy, a command input with history and autocomplete, and a plain-text transcript."
+readme = "README.md"
+authors = [{ name = "spicybyte", email = "spicybyte@git.sbs" }]
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=8.2,<9",   # tested on 8.2.8; the APIs used exist since 2.0, but we test 8.x only
+    "rich>=14",          # imported directly (Segment, Text); textual pins it too
+    "textual-autocomplete>=4.0.6,<4.1",   # CommandAutoComplete overrides private methods; guard test (v3 R2)
+]
+classifiers = [
+    "Environment :: Console",
+    "Typing :: Typed",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Repository = "https://github.com/thespicybyte/textual-console"
+
+[dependency-groups]
+dev = ["textual-dev>=1.8"]
+test = ["pytest>=8", "pytest-asyncio>=1.0", "pytest-textual-snapshot>=1.1"]
+lint = ["ruff", "mypy", "pyright"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/textual_console"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["src", "README.md", "CHANGELOG.md", "LICENSE", "pyproject.toml"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "--doctest-modules"
+testpaths = ["tests", "src"]
+
+[tool.ruff.lint]
+select = ["A", "B", "E", "F", "I", "D", "ANN", "UP"]
+pydocstyle.convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+
+[tool.mypy]
+strict = true
+files = ["src", "tests", "examples"]
+
+[tool.pyright]
+include = ["src", "tests", "examples"]
+pythonVersion = "3.11"
+venvPath = "."
+venv = ".venv"
