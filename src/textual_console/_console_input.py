@@ -3,10 +3,15 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
+from rich.cells import cell_len
+from rich.segment import Segment
 from textual import events, on
 from textual.actions import SkipAction
 from textual.binding import Binding
 from textual.message import Message
+from textual.reactive import reactive
+from textual.strip import Strip
+from textual.suggester import Suggester, SuggestionReady
 from textual.widgets import TextArea
 from textual.widgets.text_area import Document, Selection
 
@@ -28,6 +33,11 @@ class ConsoleInput(TextArea):
     move focus unless ``tab_moves_focus`` is set. A middle click pastes the text
     selected in the output, or else the app clipboard.
 
+    ``prompt`` is drawn in the left gutter on the first row. Other rows get blank
+    padding of the same width. It is not part of the text, and the
+    ``console-input--prompt`` component class styles it. ``suggester`` shows
+    ghost text after the cursor, and the right key accepts it.
+
     The text is the :attr:`value`. Changes are posted as
     :class:`textual.widgets.TextArea.Changed`.
 
@@ -44,8 +54,14 @@ class ConsoleInput(TextArea):
     DEFAULT_CSS = """
     ConsoleInput {
         height: auto;
+        & .console-input--prompt {
+            color: $accent;
+            text-style: bold;
+        }
     }
     """
+
+    COMPONENT_CLASSES = {"console-input--prompt"}
 
     BINDINGS = [
         Binding("enter", "submit", show=False),
@@ -54,6 +70,9 @@ class ConsoleInput(TextArea):
         Binding("down", "cursor_down_or_history", show=False),
         Binding("tab", "tab", show=False),
     ]
+
+    prompt: reactive[str] = reactive("", init=False)
+    """The text drawn in the gutter on the first row. It is not part of the value."""
 
     @dataclass
     class Submitted(Message):
@@ -74,11 +93,13 @@ class ConsoleInput(TextArea):
         value: str = "",
         placeholder: str = "",
         *,
+        prompt: str = "",
         history: CommandHistory | None = None,
         clear_on_submit: bool = True,
         middle_click_paste: bool = True,
         tab_moves_focus: bool = False,
         max_height: int | None = 10,
+        suggester: Suggester | None = None,
         **text_area_kwargs: Any,  # noqa: ANN401
     ) -> None:
         """Create a console input.
@@ -86,6 +107,9 @@ class ConsoleInput(TextArea):
         Args:
             value: The starting text.
             placeholder: The text shown while the input is empty.
+            prompt: The text drawn in the gutter on the first row, such as
+                ``"> "``. It is available as :attr:`prompt` and can change at
+                run time.
             history: The history to use. Pass your own to share it or to save
                 it. A new empty history is made if this is ``None``. It is
                 available as :attr:`command_history`.
@@ -98,6 +122,9 @@ class ConsoleInput(TextArea):
                 sets an inline style, which wins over CSS. The limit is
                 applied when the widget is mounted: changing the attribute
                 later does nothing.
+            suggester: A Textual suggester. While the text is one line and the
+                cursor is at its end, the suggestion is shown as ghost text
+                after the cursor, and the right key accepts it.
             **text_area_kwargs: Other arguments for
                 :class:`textual.widgets.TextArea`, such as ``id``, ``classes``
                 or ``compact``. The arguments that make a ``TextArea`` an editor
@@ -118,6 +145,9 @@ class ConsoleInput(TextArea):
             placeholder=placeholder,
             **text_area_kwargs,
         )
+        self.set_reactive(ConsoleInput.prompt, prompt)
+        self.suggester = suggester
+        """The suggester, or ``None``."""
         self.selection = Selection.cursor(self.document.end)
         # TextArea keeps its own undo history in ``history``, so the command
         # history has another name.
@@ -143,8 +173,61 @@ class ConsoleInput(TextArea):
         """
 
     def _on_mount(self, event: events.Mount) -> None:
+        # The cursor was moved to the end before the widget had a size.
+        self._recompute_cursor_offset()
         if self.max_height is not None:
             self.styles.max_height = self.max_height + self.gutter.height
+
+    @property
+    def gutter_width(self) -> int:
+        """The cell width of the prompt, which is the width of the gutter."""
+        return cell_len(self.prompt)
+
+    def _watch_prompt(self) -> None:
+        self._rewrap_and_refresh_virtual_size()
+        self.refresh()
+
+    def render_line(self, y: int) -> Strip:
+        """Render a row, with the prompt or blank padding in the gutter."""
+        gutter_width = self.gutter_width
+        strip = super().render_line(y)
+        if not gutter_width:
+            return strip
+        base_style = self.rich_style
+        if y + self.scroll_offset.y == 0:
+            style = base_style + self.get_component_rich_style("console-input--prompt")
+            gutter = Segment(self.prompt, style)
+        else:
+            gutter = Segment(" " * gutter_width, base_style)
+        # The placeholder row is as wide as the content, so crop it to the text.
+        text = strip.crop(0, self.scrollable_content_region.width - gutter_width)
+        return Strip.join([Strip([gutter], gutter_width), text])
+
+    def update_suggestion(self) -> None:
+        """Ask the suggester for ghost text, while the text is one line."""
+        value = self.value
+        if (
+            self.suggester is None
+            or not self.is_attached
+            or not value
+            or self.document.line_count > 1
+            or self.cursor_location != self.document.end
+        ):
+            self.suggestion = ""
+            return
+        self.run_worker(self.suggester._get_suggestion(self, value), exclusive=True)
+
+    def _on_suggestion_ready(self, event: SuggestionReady) -> None:
+        value = self.value
+        if (
+            event.value == value
+            and self.document.line_count == 1
+            and self.cursor_location == self.document.end
+            and event.suggestion.startswith(value)
+        ):
+            self.suggestion = event.suggestion[len(value) :]
+        else:
+            self.suggestion = ""
 
     @property
     def value(self) -> str:

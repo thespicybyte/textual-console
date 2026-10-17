@@ -5,6 +5,7 @@ from textual import events
 from textual.app import App, ComposeResult
 from textual.geometry import Offset
 from textual.selection import Selection
+from textual.suggester import SuggestFromList, SuggestionReady
 from textual.widgets import Button
 
 from textual_console import CommandHistory, ConsoleInput, ConsoleOutput
@@ -352,3 +353,159 @@ def test_input_only_arguments_are_rejected() -> None:
 def test_max_height_below_one_is_rejected(value: int) -> None:
     with pytest.raises(ValueError, match="max_height must be at least 1"):
         ConsoleInput(max_height=value)
+
+
+class PromptApp(App[None]):
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__()
+        self.kwargs = kwargs
+
+    def compose(self) -> ComposeResult:
+        yield ConsoleInput(**self.kwargs)  # type: ignore[arg-type]
+
+
+def _row(prompt: ConsoleInput, y: int) -> str:
+    return prompt.render_line(y).text
+
+
+async def test_prompt_on_first_row_only() -> None:
+    app = PromptApp(prompt="py> ", value="one\ntwo")
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        await pilot.pause()
+        assert prompt.gutter_width == 4
+        assert _row(prompt, 0).startswith("py> one")
+        assert _row(prompt, 1).startswith("    two")
+        assert prompt.value == "one\ntwo"
+
+
+async def test_prompt_pads_wrapped_rows() -> None:
+    app = PromptApp(prompt="> ", value="x" * 60)
+    async with app.run_test(size=(20, 10)) as pilot:
+        prompt = app.query_one(ConsoleInput)
+        await pilot.pause()
+        assert _row(prompt, 0).startswith("> xxx")
+        assert _row(prompt, 1).startswith("  xxx")
+        assert len(_row(prompt, 0)) == len(_row(prompt, 1))
+
+
+async def test_prompt_with_placeholder() -> None:
+    app = PromptApp(prompt="> ", placeholder="command")
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        await pilot.pause()
+        assert _row(prompt, 0).startswith("> command")
+        assert prompt.value == ""
+
+
+async def test_prompt_change_at_runtime() -> None:
+    app = PromptApp(prompt="> ", value="y" * 30)
+    async with app.run_test(size=(20, 10)) as pilot:
+        prompt = app.query_one(ConsoleInput)
+        await pilot.pause()
+        rows = prompt.wrapped_document.height
+        prompt.prompt = ">>>>>>>> "
+        await pilot.pause()
+        assert prompt.gutter_width == 9
+        assert _row(prompt, 0).startswith(">>>>>>>> yyy")
+        assert prompt.wrapped_document.height > rows
+        prompt.prompt = ""
+        await pilot.pause()
+        assert _row(prompt, 0).startswith("yyy")
+
+
+async def test_prompt_cursor_and_click_positions() -> None:
+    app = PromptApp(prompt="py> ", value="hello")
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.pause()
+        assert prompt.cursor_screen_offset.x == prompt.content_region.x + 4 + 5
+        await pilot.click(ConsoleInput, offset=(2 + 4 + 2, 1))
+        assert prompt.cursor_location == (0, 2)
+        await pilot.click(ConsoleInput, offset=(2 + 1, 1))
+        assert prompt.cursor_location == (0, 0)
+
+
+async def test_prompt_click_on_wrapped_row() -> None:
+    app = PromptApp(prompt="> ", value="abcdefghijklmnopqrstuvwxyz")
+    async with app.run_test(size=(14, 10)) as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.pause()
+        assert prompt.wrapped_document.height > 1
+        await pilot.click(ConsoleInput, offset=(2 + 2 + 1, 2))
+        row_start = prompt.wrapped_document.get_offsets(0)[0]
+        assert prompt.cursor_location == (0, row_start + 1)
+
+
+async def test_wide_character_prompt() -> None:
+    app = PromptApp(prompt="漢> ", value="ab\ncd")
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.pause()
+        assert prompt.gutter_width == 4
+        assert _row(prompt, 0).startswith("漢> ab")
+        assert _row(prompt, 1).startswith("    cd")
+        await pilot.click(ConsoleInput, offset=(2 + 4 + 1, 2))
+        assert prompt.cursor_location == (1, 1)
+
+
+class SuggestApp(App[None]):
+    def compose(self) -> ComposeResult:
+        yield ConsoleInput(
+            suggester=SuggestFromList(["hello", "help me"], case_sensitive=True)
+        )
+
+
+async def test_suggester_shows_ghost_text_and_right_accepts() -> None:
+    app = SuggestApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("h", "e", "l", "l")
+        await pilot.pause()
+        assert prompt.suggestion == "o"
+        assert prompt.value == "hell"
+        await pilot.press("right")
+        assert prompt.value == "hello"
+        assert prompt.suggestion == ""
+
+
+async def test_suggester_clears_on_multiple_lines_and_mismatch() -> None:
+    app = SuggestApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("h", "e")
+        await pilot.pause()
+        assert prompt.suggestion
+        await pilot.press("ctrl+j")
+        await pilot.pause()
+        assert prompt.suggestion == ""
+        await pilot.press("x")
+        await pilot.pause()
+        assert prompt.suggestion == ""
+
+
+async def test_stale_suggestion_is_ignored() -> None:
+    app = SuggestApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("h", "e")
+        await pilot.pause()
+        prompt.post_message(SuggestionReady("h", "hello"))
+        await pilot.pause()
+        assert prompt.suggestion == ""
+
+
+async def test_no_suggester_no_suggestion() -> None:
+    app = PromptApp()
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("h", "e")
+        await pilot.pause()
+        assert prompt.suggestion == ""
