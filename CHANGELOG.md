@@ -9,6 +9,10 @@
 - `CommandAutoComplete`: Enter submits the line when the typed word already equals the
   highlighted option. Before, Enter accepted the option and added a space, and a second
   Enter was needed. Tab still accepts the option.
+- `CommandAutoComplete`: an exception from the candidate source no longer stops the
+  app. It is logged, and there are no candidates. The README tells which lines the
+  source can get (also an empty line on Tab).
+- `CandidateSource` is now public, so hosts can type their candidate source.
 
 ## 0.1.0 (2026-10-17)
 

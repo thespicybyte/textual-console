@@ -1,5 +1,6 @@
 """Autocomplete for the last word of a command line."""
 
+import logging
 import shlex
 from collections.abc import Callable, Iterable
 from operator import itemgetter
@@ -21,8 +22,14 @@ from textual_autocomplete import (
 from textual_console._console_input import ConsoleInput
 from textual_console._tokens import last_token_span
 
+_log = logging.getLogger(__name__)
+
 CandidateSource = Callable[[str], Iterable[str | DropdownItem]]
-"""A function that gets the cursor's line and returns the possible completions."""
+"""A function that gets the cursor's line and returns the possible completions.
+
+It can get any line: also an empty line, only spaces, or a line that ends in a
+space, a quote or a backslash. It never gets a line with an unclosed quote.
+"""
 
 
 def _width(prefix: Content | None, main: Content) -> int:
@@ -122,7 +129,8 @@ class CommandAutoComplete(AutoComplete):
     candidate is applied at once. With no candidates, Tab does what the
     input does. The candidate source can return :class:`CommandItem` rows,
     which show help text, and :class:`CompletionHint` rows, which show what to
-    type.
+    type. If the candidate source raises, the error is logged and there are no
+    candidates.
 
     Enter accepts the highlighted option only when it changes the word. When
     the word already equals the option, Enter submits the line. Tab always
@@ -146,7 +154,8 @@ class CommandAutoComplete(AutoComplete):
             target: The input to complete, or a selector for it.
             candidates: A function that gets the cursor's line and returns the
                 possible completions for the last word. They are filtered
-                against that word.
+                against that word. See :data:`CandidateSource` for the lines
+                it can get.
             **autocomplete_kwargs: Other arguments for
                 :class:`textual_autocomplete.AutoComplete`.
         """
@@ -327,9 +336,18 @@ class CommandAutoComplete(AutoComplete):
                 self.target.recalled_value = None
             if not self.get_search_string(target_state):
                 return []
+        try:
+            results = list(self._source(target_state.text))
+        except Exception:
+            _log.exception(
+                "The candidate source %r failed for the line %r",
+                self._source,
+                target_state.text,
+            )
+            return []
         return [
             item if isinstance(item, DropdownItem) else DropdownItem(item)
-            for item in self._source(target_state.text)
+            for item in results
         ]
 
     def apply_completion(self, value: str, state: TargetState) -> None:
