@@ -180,8 +180,8 @@ multi-line input only the cursor's line is used, and a completion changes only t
   option, Tab applies it at once. If there are none, Tab does what the input does.
 - **Key order:** when the dropdown is open, up and down move in the dropdown, and Tab or
   Enter accept the option. If the word already equals the highlighted option, Enter
-  submits the line and only Tab accepts it. When it is closed, up and down move between rows or walk the
-  history.
+  submits the line and only Tab accepts it. When it is closed, up and down move between
+  rows or walk the history.
 - **Items:** a function can return strings, `DropdownItem`s, `CommandItem(value, help)`
   (shows `help` in a dim second column, aligned) and `CompletionHint(text)` (a dim,
   disabled row that tells what to type. It is never applied).
