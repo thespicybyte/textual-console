@@ -69,6 +69,10 @@ output.write_ansi("\x1b[31mred\x1b[0m")
 
 - Drag to select. The view scrolls at the edges.
 - Double-click selects a word. Triple-click selects a line.
+- Shift-click moves the end of the selection. The start stays, so you can select more
+  than one screen: start a selection, scroll, then shift-click. With no selection,
+  nothing happens. Many terminals keep shift-click for their own selection and never
+  send it to the app. Then use ctrl-click, which does the same.
 - `ctrl+c` copies the selection with `App.copy_to_clipboard` (OSC 52). `Escape` or a
   single click clears the selection.
 - `copy_on_select=True` copies when a selection ends and posts `ConsoleOutput.SelectionCopied`.
@@ -91,6 +95,10 @@ row by row up to `max_height` rows (the default is 10), and then scrolls.
 history = CommandHistory(["help", "quit"])
 prompt = ConsoleInput(prompt="> ", history=history, max_height=10)
 ```
+
+Shift-click moves the end of the selection and the start stays, also when the start is
+scrolled out of view. Ctrl-click does the same, for terminals that keep shift-click for
+themselves. With no selection, both do nothing.
 
 | Key | Action |
 |---|---|
@@ -171,13 +179,20 @@ multi-line input only the cursor's line is used, and a completion changes only t
 - **Tab opens the dropdown** when it is closed, also after a space. If there is one
   option, Tab applies it at once. If there are none, Tab does what the input does.
 - **Key order:** when the dropdown is open, up and down move in the dropdown, and Tab or
-  Enter accept the option. When it is closed, up and down move between rows or walk the
-  history.
+  Enter accept the option. If the word already equals the highlighted option, Enter
+  submits the line and only Tab accepts it. When it is closed, up and down move between
+  rows or walk the history.
 - **Items:** a function can return strings, `DropdownItem`s, `CommandItem(value, help)`
   (shows `help` in a dim second column, aligned) and `CompletionHint(text)` (a dim,
   disabled row that tells what to type. It is never applied).
 - **The candidate source is synchronous.** It runs on the event loop. If the source is
   slow (files, network), cache the result.
+- **The candidate source gets any line.** On Tab it can be empty, only spaces, or end in
+  a space, a closed quote or a backslash. It is never a line with an unclosed quote. Do
+  not assume that there is a first word. If the source raises, there are no candidates
+  and the error is logged to the `textual_console` logger. To see it, set up `logging`
+  (for example to a file, or `textual.logging.TextualHandler` with `textual console`).
+  To type your source, use `from textual_console import CandidateSource`.
 - The package needs `textual-autocomplete` 4.0.x, because `CommandAutoComplete` overrides
   some of its private methods.
 
@@ -264,6 +279,12 @@ Copy uses OSC 52, which asks the terminal to set the clipboard. The app cannot d
 whether it worked. `ctrl+c` is the reliable key. `cmd+c` reaches the app only on
 terminals with the kitty keyboard protocol. Native terminal selection (shift-drag or
 option-drag) is not changed.
+
+**Shift-click.** Many terminals (xterm, kitty, WezTerm, Ghostty, GNOME Terminal,
+Alacritty) use shift-click for their own selection, so the app never sees it. Use
+ctrl-click there, or change the terminal setting (for example Ghostty
+`mouse-shift-capture = true`, kitty `terminal_select_modifiers`, WezTerm
+`bypass_mouse_reporting_modifiers`).
 
 Maintainers test these things by hand in each terminal. The steps and the results table
 are in [docs/manual-testing.md](https://github.com/thespicybyte/textual-console/blob/main/docs/manual-testing.md).

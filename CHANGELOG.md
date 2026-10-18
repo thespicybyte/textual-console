@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.2.0 (2026-10-18)
+
+- `ConsoleOutput` and `ConsoleInput`: shift-click (or ctrl-click) moves the end of the
+  selection, also past lines that scrolled out of view. The end point is the place
+  where the mouse button is released, because some terminal setups (herdr in Ghostty)
+  report a wrong position for the press.
+- `CommandAutoComplete`: Enter submits the line when the typed word already equals the
+  highlighted option. Before, Enter accepted the option and added a space, and a second
+  Enter was needed. Tab still accepts the option.
+- `CommandAutoComplete`: an exception from the candidate source no longer stops the
+  app. It is logged, and there are no candidates. The README tells which lines the
+  source can get (also an empty line on Tab).
+- `CandidateSource` is now public, so hosts can type their candidate source.
+
+## 0.1.0 (2026-10-17)
 
 - `ConsoleOutput`: Rich output with drag, word and line selection, and OSC 52 copy.
 - `ConsoleInput` and `CommandHistory`: a `TextArea` command prompt that grows up to

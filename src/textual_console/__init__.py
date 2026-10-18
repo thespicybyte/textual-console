@@ -3,6 +3,7 @@
 from textual_console._ansi import strip_ansi
 from textual_console._argparse import ArgparseCompleter, set_completer
 from textual_console._autocomplete import (
+    CandidateSource,
     CommandAutoComplete,
     CommandItem,
     CompletionHint,
@@ -14,6 +15,7 @@ from textual_console._history import CommandHistory
 
 __all__ = [
     "ArgparseCompleter",
+    "CandidateSource",
     "CommandAutoComplete",
     "CommandHistory",
     "CommandItem",

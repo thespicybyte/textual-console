@@ -1,5 +1,6 @@
 """Autocomplete for the last word of a command line."""
 
+import logging
 import shlex
 from collections.abc import Callable, Iterable
 from operator import itemgetter
@@ -21,8 +22,14 @@ from textual_autocomplete import (
 from textual_console._console_input import ConsoleInput
 from textual_console._tokens import last_token_span
 
+_log = logging.getLogger(__name__)
+
 CandidateSource = Callable[[str], Iterable[str | DropdownItem]]
-"""A function that gets the cursor's line and returns the possible completions."""
+"""A function that gets the cursor's line and returns the possible completions.
+
+It can get any line: also an empty line, only spaces, or a line that ends in a
+space, a quote or a backslash. It never gets a line with an unclosed quote.
+"""
 
 
 def _width(prefix: Content | None, main: Content) -> int:
@@ -122,7 +129,12 @@ class CommandAutoComplete(AutoComplete):
     candidate is applied at once. With no candidates, Tab does what the
     input does. The candidate source can return :class:`CommandItem` rows,
     which show help text, and :class:`CompletionHint` rows, which show what to
-    type.
+    type. If the candidate source raises, the error is logged and there are no
+    candidates.
+
+    Enter accepts the highlighted option only when it changes the word. When
+    the word already equals the option, Enter submits the line. Tab always
+    accepts.
 
     The candidates are read in the event loop, so a slow source should cache.
 
@@ -142,7 +154,8 @@ class CommandAutoComplete(AutoComplete):
             target: The input to complete, or a selector for it.
             candidates: A function that gets the cursor's line and returns the
                 possible completions for the last word. They are filtered
-                against that word.
+                against that word. See :data:`CandidateSource` for the lines
+                it can get.
             **autocomplete_kwargs: Other arguments for
                 :class:`textual_autocomplete.AutoComplete`.
         """
@@ -170,6 +183,10 @@ class CommandAutoComplete(AutoComplete):
                 return
             if self.display and self._only_hints():
                 self._keys_with_only_hints(event)
+                return
+            if event.key == "enter" and self.display and self._highlighted_is_typed():
+                # Accepting would not change the word, so Enter submits.
+                self.action_hide()
                 return
         super()._listen_to_messages(event)
         if isinstance(event, TextArea.Changed):
@@ -205,6 +222,18 @@ class CommandAutoComplete(AutoComplete):
             event.stop()
         elif event.key == "enter":
             self.action_hide()
+
+    def _highlighted_is_typed(self) -> bool:
+        option_list = self.option_list
+        highlighted = option_list.highlighted
+        if highlighted is None or not option_list.option_count:
+            return False
+        option = option_list.get_option_at_index(highlighted)
+        return (
+            isinstance(option, DropdownItem)
+            and self._is_selectable(option)
+            and option.value == self.get_search_string(self._get_target_state())
+        )
 
     def _skip_hint(self, step: int) -> None:
         option_list = self.option_list
@@ -307,9 +336,18 @@ class CommandAutoComplete(AutoComplete):
                 self.target.recalled_value = None
             if not self.get_search_string(target_state):
                 return []
+        try:
+            results = list(self._source(target_state.text))
+        except Exception:
+            _log.exception(
+                "The candidate source %r failed for the line %r",
+                self._source,
+                target_state.text,
+            )
+            return []
         return [
             item if isinstance(item, DropdownItem) else DropdownItem(item)
-            for item in self._source(target_state.text)
+            for item in results
         ]
 
     def apply_completion(self, value: str, state: TargetState) -> None:

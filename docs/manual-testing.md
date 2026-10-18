@@ -30,6 +30,11 @@ writes a plain-text transcript.
 8. Tab after a command (for example "flood ") shows its options and a hint.
    Type until nothing matches: does an empty dropdown stay open?
 9. Esc Esc (quickly) clears the prompt; ctrl+z brings it back.
+10. Drag a short selection in the output, scroll with the wheel, then shift-click: all
+    lines are selected, and ctrl+c copies all of them. Do the same in a multi-line
+    prompt. With no selection, shift-click does nothing.
+11. Repeat check 10 with ctrl+click. It is the fallback where the terminal takes
+    shift+click for its own selection.
 
 ## Results
 
@@ -42,18 +47,23 @@ The columns of the results table:
 5. **Terminal paste:** paste multi-line text with `cmd+v` or `ctrl+shift+v`.
 6. **shift+enter / alt+enter reported?:** press each key in the prompt. Does it insert a
    newline (reported) or submit (shift+enter arrives as Enter)?
+7. **shift+click reaches app?:** check 10. Does shift-click extend the selection (the app
+   gets the click), or does the terminal select text by itself?
+8. **ctrl+click reaches app?:** check 11. Does ctrl-click extend the selection? It is the
+   fallback where 7 fails.
 
 Expected results: 1 pastes the selection (all lines), 2 pastes the last app copy, 3 shows
 if the terminal sends the click to the app, 4 is the terminal paste, 5 keeps all lines and
-the prompt grows, 6 shows which newline keys your terminal can send.
+the prompt grows, 6 shows which newline keys your terminal can send, 7 and 8 show which click keys
+extend a selection.
 
-| Terminal | OSC 52 copy | Select + MMB | No selection + MMB | Outside + MMB | Outside + shift+MMB | Terminal paste | shift+enter / alt+enter reported? |
-|---|---|---|---|---|---|---|---|
-| iTerm2 | untested | untested | untested | untested | untested | untested | untested |
-| kitty | untested | untested | untested | untested | untested | untested | untested |
-| WezTerm | untested | untested | untested | untested | untested | untested | untested |
-| Ghostty | untested | untested | untested | untested | untested | untested | untested |
-| VS Code terminal | untested | untested | untested | untested | untested | untested | untested |
-| tmux | untested | untested | untested | untested | untested | untested | untested |
-| macOS Terminal.app | untested (expected to fail) | untested | untested | untested | untested | untested | untested |
-| herdr | untested | untested | untested | untested | untested | untested | shift+enter = Enter (submits); alt+enter untested |
+| Terminal | OSC 52 copy | Select + MMB | No selection + MMB | Outside + MMB | Outside + shift+MMB | Terminal paste | shift+enter / alt+enter reported? | shift+click reaches app? | ctrl+click reaches app? |
+|---|---|---|---|---|---|---|---|---|---|
+| iTerm2 | untested | untested | untested | untested | untested | untested | untested | untested | untested |
+| kitty | untested | untested | untested | untested | untested | untested | untested | untested | untested |
+| WezTerm | untested | untested | untested | untested | untested | untested | untested | untested | untested |
+| Ghostty | untested | untested | untested | untested | untested | untested | untested | untested | untested |
+| VS Code terminal | untested | untested | untested | untested | untested | untested | untested | untested | untested |
+| tmux | untested | untested | untested | untested | untested | untested | untested | untested | untested |
+| macOS Terminal.app | untested (expected to fail) | untested | untested | untested | untested | untested | untested | untested | untested |
+| herdr (in Ghostty) | untested | untested | untested | untested | untested | untested | shift+enter = Enter (submits); alt+enter untested | no (Ghostty keeps it) | yes |

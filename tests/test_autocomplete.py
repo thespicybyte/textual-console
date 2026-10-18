@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Sequence
+import logging
+import shlex
+from collections.abc import Callable, Iterator, Sequence
 
+import pytest
 from textual.app import App, ComposeResult
 from textual.pilot import Pilot
 from textual.widgets import Button
 from textual_autocomplete import AutoComplete, DropdownItem
 
 from textual_console import (
+    CandidateSource,
     CommandAutoComplete,
     CommandHistory,
     CommandItem,
@@ -92,6 +96,91 @@ async def test_dropdown_open_enter_accepts_without_submit() -> None:
         await pilot.press("enter")
         assert app.lines == ["exit "]
         assert prompt.command_history.entries == ["exit "]
+
+
+@pytest.mark.parametrize(
+    "candidates",
+    [["pwd", "pwdx", "ps", "cd"], ["pwd", "pwait-dump", "ps"]],
+)
+async def test_enter_submits_when_word_equals_highlighted_option(
+    candidates: list[str],
+) -> None:
+    app = CompleteApp(candidates)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d")
+        await pilot.pause()
+        assert dropdown_open(app)
+        assert app.query_one(AutoComplete).option_list.highlighted == 0
+        await pilot.press("enter")
+        assert app.lines == ["pwd"]
+        assert prompt.value == ""
+        assert not dropdown_open(app)
+
+
+async def test_enter_accepts_other_highlighted_option() -> None:
+    app = CompleteApp(["pwd", "pwdx"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d", "down", "enter")
+        assert prompt.value == "pwdx "
+        assert app.lines == []
+
+
+async def test_enter_submits_after_moving_back_to_the_exact_option() -> None:
+    app = CompleteApp(["pwd", "pwdx"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d", "down", "up", "enter")
+        assert app.lines == ["pwd"]
+
+
+async def test_tab_still_accepts_exact_match() -> None:
+    app = CompleteApp(["pwd", "pwdx"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d", "tab")
+        assert prompt.value == "pwd "
+        assert app.lines == []
+
+
+async def test_enter_accepts_when_only_the_case_differs() -> None:
+    app = CompleteApp(["PWD", "pwd2"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d", "enter")
+        assert prompt.value == "PWD "
+        assert app.lines == []
+
+
+async def test_enter_submits_exact_match_in_dropdown_opened_with_tab() -> None:
+    app = CompleteApp(["pwd", "pwdx"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d", "escape")
+        assert not dropdown_open(app)
+        await pilot.press("tab")
+        assert dropdown_open(app)
+        await pilot.press("enter")
+        assert app.lines == ["pwd"]
+
+
+async def test_enter_submits_exact_match_after_an_earlier_word() -> None:
+    app = CompleteApp(["pwd", "pwdx"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press(*"sudo pwd")
+        await pilot.pause()
+        assert dropdown_open(app)
+        await pilot.press("enter")
+        assert app.lines == ["sudo pwd"]
 
 
 async def test_dropdown_closed_up_down_walk_history() -> None:
@@ -609,3 +698,113 @@ async def test_tab_with_unclosed_quote_does_not_open() -> None:
         await pilot.press("tab")
         assert not dropdown_open(app)
         assert app.focused is not prompt
+
+
+class SourceApp(App[None]):
+    def __init__(self, source: CandidateSource) -> None:
+        super().__init__()
+        self.source = source
+
+    def compose(self) -> ComposeResult:
+        yield ConsoleInput(id="prompt", history=CommandHistory([]))
+        yield CommandAutoComplete("#prompt", self.source)
+
+
+def first_word_source(line: str) -> list[str]:
+    return COMMANDS if shlex.split(line)[0] else []
+
+
+async def test_tab_on_empty_line_lists_all_candidates() -> None:
+    app = SourceApp(lambda line: COMMANDS)
+    async with app.run_test() as pilot:
+        app.query_one(ConsoleInput).focus()
+        await pilot.press("tab")
+        await pilot.pause()
+        assert dropdown_open(app)
+        assert option_texts(app) == COMMANDS
+
+
+@pytest.mark.parametrize(
+    ("keys", "error"),
+    [
+        ([], "IndexError"),
+        (["space"], "IndexError"),
+        (["l", "s", "space", "backslash"], "ValueError"),
+    ],
+    ids=["empty", "space", "trailing-backslash"],
+)
+async def test_failing_source_on_tab_does_not_crash(
+    keys: list[str], error: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    app = SourceApp(first_word_source)
+    with caplog.at_level(logging.ERROR, logger="textual_console._autocomplete"):
+        async with app.run_test() as pilot:
+            prompt = app.query_one(ConsoleInput)
+            prompt.focus()
+            await pilot.press(*keys)
+            before = prompt.value
+            await pilot.press("tab")
+            await pilot.pause()
+            assert app.is_running
+            assert not dropdown_open(app)
+            assert prompt.value == before
+    assert "candidate source" in caplog.text
+    assert error in caplog.text
+
+
+async def test_failing_source_while_typing_does_not_crash(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def broken(line: str) -> list[str]:
+        raise RuntimeError("boom")
+
+    app = SourceApp(broken)
+    with caplog.at_level(logging.ERROR, logger="textual_console._autocomplete"):
+        async with app.run_test() as pilot:
+            prompt = app.query_one(ConsoleInput)
+            prompt.focus()
+            await pilot.press("h", "e")
+            await pilot.pause()
+            assert app.is_running
+            assert not dropdown_open(app)
+            assert prompt.value == "he"
+    assert "boom" in caplog.text
+
+
+async def test_failing_generator_source_is_caught(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def broken(line: str) -> Iterator[str]:
+        yield "hello"
+        raise RuntimeError("boom")
+
+    app = SourceApp(broken)
+    with caplog.at_level(logging.ERROR, logger="textual_console._autocomplete"):
+        async with app.run_test() as pilot:
+            app.query_one(ConsoleInput).focus()
+            await pilot.press("tab")
+            await pilot.pause()
+            assert app.is_running
+            assert not dropdown_open(app)
+    assert "boom" in caplog.text
+
+
+async def test_source_recovers_after_failure(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def source(line: str) -> list[str]:
+        if not line:
+            raise RuntimeError("boom")
+        return COMMANDS
+
+    app = SourceApp(source)
+    with caplog.at_level(logging.ERROR, logger="textual_console._autocomplete"):
+        async with app.run_test() as pilot:
+            app.query_one(ConsoleInput).focus()
+            await pilot.press("tab")
+            await pilot.pause()
+            assert not dropdown_open(app)
+            await pilot.press("h")
+            await pilot.pause()
+            assert dropdown_open(app)
+    assert "boom" in caplog.text

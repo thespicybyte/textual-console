@@ -4,6 +4,7 @@ import textual_console
 def test_import() -> None:
     assert textual_console.__all__ == [
         "ArgparseCompleter",
+        "CandidateSource",
         "CommandAutoComplete",
         "CommandHistory",
         "CommandItem",
