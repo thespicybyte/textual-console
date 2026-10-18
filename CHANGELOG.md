@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 (unreleased)
+## 0.2.0 (2026-10-18)
 
 - `ConsoleOutput` and `ConsoleInput`: shift-click (or ctrl-click) moves the end of the
   selection, also past lines that scrolled out of view. The end point is the place

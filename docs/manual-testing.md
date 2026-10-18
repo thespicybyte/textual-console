@@ -66,4 +66,4 @@ extend a selection.
 | VS Code terminal | untested | untested | untested | untested | untested | untested | untested | untested | untested |
 | tmux | untested | untested | untested | untested | untested | untested | untested | untested | untested |
 | macOS Terminal.app | untested (expected to fail) | untested | untested | untested | untested | untested | untested | untested | untested |
-| herdr | untested | untested | untested | untested | untested | untested | shift+enter = Enter (submits); alt+enter untested | untested | untested |
+| herdr (in Ghostty) | untested | untested | untested | untested | untested | untested | shift+enter = Enter (submits); alt+enter untested | no (Ghostty keeps it) | yes |
