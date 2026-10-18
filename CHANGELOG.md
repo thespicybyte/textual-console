@@ -1,6 +1,13 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 0.2.0 (unreleased)
+
+- `ConsoleOutput` and `ConsoleInput`: shift-click (or ctrl-click) moves the end of the
+  selection, also past lines that scrolled out of view. The end point is the place
+  where the mouse button is released, because some terminal setups (herdr in Ghostty)
+  report a wrong position for the press.
+
+## 0.1.0 (2026-10-17)
 
 - `ConsoleOutput`: Rich output with drag, word and line selection, and OSC 52 copy.
 - `ConsoleInput` and `CommandHistory`: a `TextArea` command prompt that grows up to

@@ -49,6 +49,10 @@ class ConsoleInput(TextArea):
     move focus unless ``tab_moves_focus`` is set. A middle click pastes the text
     selected in the output, or else the app clipboard.
 
+    Shift-click moves the end of the selection and the start point stays. Ctrl-click
+    does the same, for terminals that keep shift-click for themselves. Without a
+    selection, both do nothing.
+
     A ``read_only`` input keeps its text: paste, history, submit, completion and
     Esc Esc do nothing.
 
@@ -418,6 +422,21 @@ class ConsoleInput(TextArea):
     def action_paste(self) -> None:
         """Paste the app clipboard."""
         self._paste(self.app.clipboard)
+
+    async def _on_mouse_down(self, event: events.MouseDown) -> None:
+        if (event.shift or event.ctrl) and event.button == 1:
+            # The extension happens on mouse up. Some terminal setups (for
+            # example herdr in Ghostty) send a wrong position with a modified
+            # mouse down, so the down can even go to another widget.
+            event.prevent_default()
+
+    async def _on_mouse_up(self, event: events.MouseUp) -> None:
+        if not (event.shift or event.ctrl) or event.button != 1:
+            return
+        if self.selection.is_empty:
+            return  # no selection: do nothing, the cursor stays
+        target = self.get_target_document_location(event)
+        self.selection = Selection(self.selection.start, target)
 
     @on(events.MouseDown)
     def _take_paste_text(self, event: events.MouseDown) -> None:
