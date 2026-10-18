@@ -946,3 +946,18 @@ async def test_modified_middle_click_still_pastes() -> None:
         app.copy_to_clipboard("pasted")
         await pilot.click(ConsoleInput, button=2, shift=True)
         assert prompt.value == "pasted"
+
+
+@MODS
+async def test_extend_uses_mouse_up_position_when_down_is_wrong(mod: str) -> None:
+    # Some terminal setups (herdr in Ghostty) send a modified mouse down with a
+    # wrong position, and the real position with the mouse up.
+    app = InputApp(max_height=4)
+    async with app.run_test() as pilot:
+        prompt = await _tall_prompt(app, pilot)
+        prompt.selection = TextSelection((1, 1), (1, 3))
+        mods = _mods(mod)
+        await pilot.mouse_down(ConsoleInput, offset=(2, 1), **mods)
+        await pilot.mouse_up(ConsoleInput, offset=(2 + 2, 1 + 2), **mods)
+        await pilot.pause()
+        assert prompt.selection == TextSelection((1, 1), (2, 2))

@@ -166,6 +166,7 @@ class ConsoleOutput(RichLog, can_focus=False):
         """Characters that count as part of a word."""
         self._copied_selection: Selection | None = None
         self._anchor: Offset | None = None
+        self._extend_pending = False
         self._transcript = log
 
     def on_mount(self) -> None:
@@ -557,28 +558,43 @@ class ConsoleOutput(RichLog, can_focus=False):
     # Events
 
     def on_mouse_down(self, event: events.MouseDown) -> None:
-        """Record the start of a selection, or extend it on shift or ctrl.
+        """Record the start of a selection, or start an extension on shift or ctrl.
+
+        An extension ends on the mouse up, not here: some terminal setups (for
+        example herdr in Ghostty) send a wrong position with a modified mouse
+        down, and the real position with the mouse up.
 
         Args:
             event: The mouse down event.
         """
+        self._extend_pending = False
         if event.button != 1 or not (
             self.allow_select and self.screen.allow_select and self.app.ALLOW_SELECT
         ):
             return
-        extend = event.shift or event.ctrl
-        if extend and self.text_selection is None:
+        if event.shift or event.ctrl:
+            if self.text_selection is not None:
+                self._cancel_screen_click()
+                self._extend_pending = True
             return
         offset = self._content_offset_at(event)
-        if offset is None:
-            return
-        if not extend:
+        if offset is not None:
             self._anchor = offset
-            return
-        self._cancel_screen_click()
-        self.extend_selection_to(offset)
 
-    def _content_offset_at(self, event: events.MouseDown) -> Offset | None:
+    def on_mouse_up(self, event: events.MouseUp) -> None:
+        """Finish an extension that started on a shift or ctrl mouse down.
+
+        Args:
+            event: The mouse up event.
+        """
+        if not self._extend_pending:
+            return
+        self._extend_pending = False
+        offset = self._content_offset_at(event)
+        if offset is not None:
+            self.extend_selection_to(offset)
+
+    def _content_offset_at(self, event: events.MouseEvent) -> Offset | None:
         """Map a mouse event to content coordinates, as the screen does.
 
         Returns:

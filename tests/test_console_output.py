@@ -749,3 +749,23 @@ async def test_plain_click_after_extension_clears_it() -> None:
         await pilot.click(ConsoleOutput, offset=(1, 1))
         await pilot.pause()
         assert output.text_selection is None
+
+
+@MODS
+async def test_extend_uses_mouse_up_position_when_down_is_wrong(mod: str) -> None:
+    # Some terminal setups (herdr in Ghostty) send a modified mouse down with a
+    # wrong position, and the real position with the mouse up and the click.
+    app = OutputApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        await _drag(pilot, (2, 1), (4, 2))
+        mods = _mods(mod)
+        await pilot.mouse_down(ConsoleOutput, offset=(0, 0), **mods)
+        await pilot.mouse_up(ConsoleOutput, offset=(3, 5), **mods)
+        await pilot.pause()
+        assert output.selected_text == "ne 1\nline 2\nline 3\nline 4\nline"
+        # The same press with a correct position still works.
+        await pilot.mouse_down(ConsoleOutput, offset=(1, 6), **mods)
+        await pilot.mouse_up(ConsoleOutput, offset=(1, 6), **mods)
+        await pilot.pause()
+        assert (output.selected_text or "").endswith("line 5\nli")
