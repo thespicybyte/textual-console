@@ -7,6 +7,8 @@
   `max_height` rows, with a `prompt` gutter, a `suggester`, history
   (`command_history`), newline keys (shift+enter, alt+enter, ctrl+j), a quiet Tab and
   middle-click paste of all selected lines.
+- `ConsoleOutput` and `ConsoleInput`: shift-click (or ctrl-click) moves the end of the
+  selection, also past lines that scrolled out of view.
 - `ConsoleInput`: double Escape clears the input (`double_escape_clear`).
 - `CommandAutoComplete`: completes the last word of the cursor's line and keeps quotes.
   Tab opens the dropdown.
