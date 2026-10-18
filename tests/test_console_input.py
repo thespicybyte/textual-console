@@ -4,9 +4,11 @@ import pytest
 from textual import events
 from textual.app import App, ComposeResult
 from textual.geometry import Offset
+from textual.pilot import Pilot
 from textual.selection import Selection
 from textual.suggester import SuggestFromList, SuggestionReady
 from textual.widgets import Button
+from textual.widgets.text_area import Selection as TextSelection
 
 from textual_console import CommandHistory, ConsoleInput, ConsoleOutput
 
@@ -815,3 +817,132 @@ async def test_read_only_input_does_not_submit() -> None:
         assert app.submitted == []
         assert prompt.value == "keep"
         assert history.entries == ["one"]
+
+
+# Extend a selection with shift-click or ctrl-click
+
+MODS = pytest.mark.parametrize("mod", ["shift", "ctrl"])
+
+
+def _mods(mod: str) -> dict[str, bool]:
+    return {"shift": mod == "shift", "control": mod == "ctrl"}
+
+
+async def _tall_prompt(app: InputApp, pilot: Pilot[None]) -> ConsoleInput:
+    prompt = app.query_one(ConsoleInput)
+    prompt.focus()
+    prompt.value = "\n".join(f"row {n}" for n in range(12))
+    await pilot.pause()
+    prompt.scroll_to(y=0, animate=False)
+    await pilot.pause()
+    return prompt
+
+
+async def _click_row(
+    pilot: Pilot[None], prompt: ConsoleInput, mod: str, x: int, line: int
+) -> None:
+    """Scroll so that ``line`` is visible, then click it with the modifier."""
+    top = int(prompt.scroll_offset.y)
+    visible = prompt.size.height
+    if not top <= line < top + visible:
+        prompt.scroll_to(y=max(0, line - visible + 1), animate=False)
+        await pilot.pause()
+    row = line - int(prompt.scroll_offset.y)
+    # The offset is from the border; the text starts after a cell of border
+    # and a cell of padding.
+    await pilot.click(ConsoleInput, offset=(x + 2, row + 1), **_mods(mod))
+    await pilot.pause()
+
+
+@MODS
+async def test_extend_past_scrolled_rows(mod: str) -> None:
+    app = InputApp(max_height=4)
+    async with app.run_test() as pilot:
+        prompt = await _tall_prompt(app, pilot)
+        prompt.selection = TextSelection((1, 1), (1, 3))
+        await _click_row(pilot, prompt, mod, 2, 10)
+        assert prompt.selection == TextSelection((1, 1), (10, 2))
+        assert prompt.selected_text == (
+            "ow 1\n" + "\n".join(f"row {n}" for n in range(2, 10)) + "\nro"
+        )
+
+
+@MODS
+async def test_extend_backwards_and_again(mod: str) -> None:
+    app = InputApp(max_height=4)
+    async with app.run_test() as pilot:
+        prompt = await _tall_prompt(app, pilot)
+        prompt.selection = TextSelection((8, 1), (8, 3))
+        await _click_row(pilot, prompt, mod, 2, 3)
+        assert prompt.selection == TextSelection((8, 1), (3, 2))
+        await _click_row(pilot, prompt, mod, 4, 10)
+        assert prompt.selection == TextSelection((8, 1), (10, 4))
+        await _click_row(pilot, prompt, mod, 0, 9)
+        assert prompt.selection == TextSelection((8, 1), (9, 0))
+
+
+@MODS
+async def test_extend_without_selection_does_nothing(mod: str) -> None:
+    app = InputApp(max_height=4)
+    async with app.run_test() as pilot:
+        prompt = await _tall_prompt(app, pilot)
+        prompt.move_cursor((2, 1))
+        await pilot.pause()
+        await _click_row(pilot, prompt, mod, 3, 4)
+        assert prompt.selection == TextSelection((2, 1), (2, 1))
+        assert prompt.cursor_location == (2, 1)
+
+
+@MODS
+async def test_extend_from_keyboard_selection(mod: str) -> None:
+    app = InputApp(max_height=4)
+    async with app.run_test() as pilot:
+        prompt = await _tall_prompt(app, pilot)
+        prompt.move_cursor((0, 1))
+        await pilot.press("shift+right", "shift+right", "shift+right")
+        assert prompt.selection == TextSelection((0, 1), (0, 4))
+        await _click_row(pilot, prompt, mod, 2, 3)
+        assert prompt.selection == TextSelection((0, 1), (3, 2))
+
+
+@MODS
+async def test_extend_then_copy(mod: str) -> None:
+    app = InputApp(max_height=4)
+    async with app.run_test() as pilot:
+        prompt = await _tall_prompt(app, pilot)
+        prompt.selection = TextSelection((0, 0), (0, 2))
+        await _click_row(pilot, prompt, mod, 5, 10)
+        await pilot.press("ctrl+c")
+        assert app.clipboard == ("\n".join(f"row {n}" for n in range(10)) + "\nrow 1")
+
+
+@MODS
+async def test_extend_in_read_only_input(mod: str) -> None:
+    app = InputApp(max_height=4, read_only=True)
+    async with app.run_test() as pilot:
+        prompt = await _tall_prompt(app, pilot)
+        prompt.selection = TextSelection((1, 0), (1, 2))
+        await _click_row(pilot, prompt, mod, 2, 3)
+        assert prompt.selection == TextSelection((1, 0), (3, 2))
+
+
+async def test_plain_click_and_drag_still_work() -> None:
+    app = InputApp(max_height=4)
+    async with app.run_test() as pilot:
+        prompt = await _tall_prompt(app, pilot)
+        await pilot.click(ConsoleInput, offset=(2 + 2, 1 + 1))
+        assert prompt.selection == TextSelection((1, 2), (1, 2))
+        await pilot.mouse_down(ConsoleInput, offset=(2 + 1, 1 + 0))
+        await pilot.hover(ConsoleInput, offset=(2 + 4, 1 + 1))
+        await pilot.mouse_up(ConsoleInput, offset=(2 + 4, 1 + 1))
+        assert prompt.selection == TextSelection((0, 1), (1, 4))
+
+
+async def test_modified_middle_click_still_pastes() -> None:
+    app = InputApp(max_height=4)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        app.copy_to_clipboard("pasted")
+        await pilot.click(ConsoleInput, button=2, shift=True)
+        assert prompt.value == "pasted"
