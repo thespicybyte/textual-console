@@ -28,6 +28,10 @@ class ConsoleOutput(RichLog, can_focus=False):
     Textual's screen selection, so you can drag to select (the view scrolls at
     the edges), double-click to select a word, triple-click to select a line,
     and press ``ctrl+c`` to copy through ``App.copy_to_clipboard`` (OSC 52).
+    Shift-click moves the end of the selection and the start point stays, so
+    a selection can be longer than one screen. Ctrl-click does the same, for
+    terminals that keep shift-click for themselves. Without a selection,
+    both do nothing.
 
     The widget cannot take focus by default, so keyboard focus stays on the
     prompt of the app. To change the highlight color, style the
@@ -161,6 +165,7 @@ class ConsoleOutput(RichLog, can_focus=False):
         self.word_chars = word_chars
         """Characters that count as part of a word."""
         self._copied_selection: Selection | None = None
+        self._anchor: Offset | None = None
         self._transcript = log
 
     def on_mount(self) -> None:
@@ -304,6 +309,7 @@ class ConsoleOutput(RichLog, can_focus=False):
         if span is None:
             self.clear_selection()
             return
+        self._anchor = Offset(span[0], offset.y)
         self._set_selection(
             Selection(Offset(span[0], offset.y), Offset(span[1], offset.y))
         )
@@ -322,7 +328,41 @@ class ConsoleOutput(RichLog, can_focus=False):
         if start == end:
             self.clear_selection()
             return
+        self._anchor = Offset(start, line)
         self._set_selection(Selection(Offset(start, line), Offset(end, line)))
+
+    def extend_selection_to(self, offset: Offset) -> None:
+        """Move the end of the selection to a position of the output.
+
+        The start point (the anchor) stays. Nothing happens if this widget has
+        no selection.
+
+        Args:
+            offset: Position in content coordinates. ``x`` is a character
+                offset and ``y`` is a line index.
+        """
+        selection = self.text_selection
+        if selection is None or not self.lines:
+            return
+        anchor = self._current_anchor(selection)
+        point = Offset(offset.x, min(max(offset.y, 0), len(self.lines) - 1))
+        first, second = sorted((anchor, point), key=lambda o: (o.y, o.x))
+        self._anchor = anchor
+        self._set_selection(Selection(first, second + Offset(1, 0)))
+
+    def _current_anchor(self, selection: Selection) -> Offset:
+        """Get the start point of ``selection``.
+
+        The recorded anchor is used only if it fits the selection. The screen
+        sorts the two points of a drag and adds one to the later one.
+        """
+        start, end = selection
+        anchor = self._anchor
+        if anchor is not None and (
+            start == anchor or (end is not None and end == anchor + Offset(1, 0))
+        ):
+            return anchor
+        return Offset(0, 0) if start is None else start
 
     def select_all(self) -> None:
         """Select all lines of the output."""
@@ -370,7 +410,13 @@ class ConsoleOutput(RichLog, can_focus=False):
         if end is not None and end.y - lines < 0:
             self.clear_selection()
             self._copied_selection = None
+            self._anchor = None
             return
+        if self._anchor is not None:
+            anchor = self._anchor
+            self._anchor = (
+                Offset(0, 0) if anchor.y - lines < 0 else anchor - Offset(0, lines)
+            )
         if start is not None:
             start = Offset(0, 0) if start.y - lines < 0 else start - Offset(0, lines)
         if end is not None:
@@ -387,6 +433,7 @@ class ConsoleOutput(RichLog, can_focus=False):
             The widget, so calls can be chained.
         """
         self.clear_selection()
+        self._anchor = None
         super().clear()
         return self
 
@@ -509,6 +556,57 @@ class ConsoleOutput(RichLog, can_focus=False):
 
     # Events
 
+    def on_mouse_down(self, event: events.MouseDown) -> None:
+        """Record the start of a selection, or extend it on shift or ctrl.
+
+        Args:
+            event: The mouse down event.
+        """
+        if event.button != 1 or not (
+            self.allow_select and self.screen.allow_select and self.app.ALLOW_SELECT
+        ):
+            return
+        extend = event.shift or event.ctrl
+        if extend and self.text_selection is None:
+            return
+        offset = self._content_offset_at(event)
+        if offset is None:
+            return
+        if not extend:
+            self._anchor = offset
+            return
+        self._cancel_screen_click()
+        self.extend_selection_to(offset)
+
+    def _content_offset_at(self, event: events.MouseDown) -> Offset | None:
+        """Map a mouse event to content coordinates, as the screen does.
+
+        Returns:
+            The offset, or ``None`` if the event is not over this widget. Below
+            the last line it is the end of the last line.
+        """
+        widget, offset = self.screen.get_widget_and_offset_at(
+            event.screen_x, event.screen_y
+        )
+        if widget is not self:
+            return None
+        if offset is None:
+            if not self.lines:
+                return None
+            last = len(self.lines) - 1
+            return Offset(len(self.lines[last].text), last)
+        return offset
+
+    def _cancel_screen_click(self) -> None:
+        """Stop the screen from treating this mouse press as a click.
+
+        This uses private Textual state (checked on Textual 8.2.8). Without it,
+        the screen clears the selection on the mouse up of a click.
+        """
+        screen = self.screen
+        screen._mouse_down_offset = None
+        screen._select_state = None
+
     def on_click(self, event: events.Click) -> None:
         """Select a word on double-click and a line on triple-click.
 
@@ -520,6 +618,11 @@ class ConsoleOutput(RichLog, can_focus=False):
         if not (
             self.allow_select and self.screen.allow_select and self.app.ALLOW_SELECT
         ):
+            return
+        if event.shift or event.ctrl:
+            # A fast second click would select a word, or everything, and
+            # replace the extended selection.
+            event.prevent_default()
             return
         scroll_x, scroll_y = self.scroll_offset
         gutter = self.gutter

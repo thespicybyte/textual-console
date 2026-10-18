@@ -48,6 +48,22 @@ async def _select_wide(pilot: Pilot[None]) -> None:
     await pilot.pause()
 
 
+async def _select_extended(pilot: Pilot[None]) -> None:
+    output = pilot.app.query_one(ConsoleOutput)
+    for i in range(40):
+        output.write(f"scrolled line {i}")
+    await pilot.pause()
+    output.scroll_to(y=0, animate=False)
+    await pilot.pause()
+    await pilot.mouse_down(ConsoleOutput, offset=(2, 1))
+    await pilot.hover(ConsoleOutput, offset=(6, 2))
+    await pilot.mouse_up(ConsoleOutput, offset=(6, 2))
+    output.scroll_to(y=30, animate=False)
+    await pilot.pause()
+    await pilot.click(ConsoleOutput, offset=(5, 4), shift=True)
+    await pilot.pause()
+
+
 def test_highlight_dark(snap_compare: SnapCompare) -> None:
     assert snap_compare(
         SnapshotApp("textual-dark"), run_before=_select, terminal_size=(50, 14)
@@ -63,4 +79,10 @@ def test_highlight_light(snap_compare: SnapCompare) -> None:
 def test_highlight_wide_characters(snap_compare: SnapCompare) -> None:
     assert snap_compare(
         SnapshotApp("textual-dark"), run_before=_select_wide, terminal_size=(50, 14)
+    )
+
+
+def test_highlight_shift_extended(snap_compare: SnapCompare) -> None:
+    assert snap_compare(
+        SnapshotApp("textual-dark"), run_before=_select_extended, terminal_size=(50, 14)
     )

@@ -7,6 +7,7 @@ from rich.text import Text
 from textual import events
 from textual.app import App, ComposeResult
 from textual.geometry import Offset
+from textual.pilot import Pilot
 from textual.selection import Selection
 from textual.widgets import Input
 
@@ -540,3 +541,211 @@ async def test_selected_text_stays_readable_in_themes() -> None:
 def test_max_lines_below_one_raises(value: int) -> None:
     with pytest.raises(ValueError, match="max_lines"):
         ConsoleOutput(max_lines=value)
+
+
+# Extend a selection with shift-click or ctrl-click
+
+MODS = pytest.mark.parametrize("mod", ["shift", "ctrl"])
+
+
+def _mods(mod: str) -> dict[str, bool]:
+    return {"shift": mod == "shift", "control": mod == "ctrl"}
+
+
+async def _long_output(app: OutputApp, pilot: Pilot[None]) -> ConsoleOutput:
+    output = app.query_one(ConsoleOutput)
+    for i in range(60):
+        output.write(f"line {i}")
+    await pilot.pause()
+    output.scroll_to(y=0, animate=False)
+    await pilot.pause()
+    return output
+
+
+async def _drag(
+    pilot: Pilot[None], start: tuple[int, int], end: tuple[int, int]
+) -> None:
+    await pilot.mouse_down(ConsoleOutput, offset=start)
+    await pilot.hover(ConsoleOutput, offset=end)
+    await pilot.mouse_up(ConsoleOutput, offset=end)
+    await pilot.pause()
+
+
+async def _extend(
+    pilot: Pilot[None], mod: str, output: ConsoleOutput, x: int, line: int
+) -> None:
+    """Scroll so that ``line`` is visible, then click it with the modifier."""
+    top = output.scroll_offset.y
+    if not top <= line < top + output.size.height:
+        output.scroll_to(y=max(0, line - 3), animate=False)
+        await pilot.pause()
+    row = line - output.scroll_offset.y
+    await pilot.click(ConsoleOutput, offset=(x, row), **_mods(mod))
+    await pilot.pause()
+
+
+@MODS
+async def test_extend_past_scrolled_lines(mod: str) -> None:
+    app = OutputApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        await _drag(pilot, (2, 1), (4, 2))
+        assert output.selected_text == "ne 1\nline "
+        await _extend(pilot, mod, output, 3, 33)
+        assert output.scroll_offset.y > 0
+        lines = "\n".join(f"line {i}" for i in range(2, 33))
+        assert output.selected_text == f"ne 1\n{lines}\nline"
+
+
+@MODS
+async def test_extend_backwards(mod: str) -> None:
+    app = OutputApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        output.scroll_to(y=38, animate=False)
+        await pilot.pause()
+        await _drag(pilot, (1, 2), (3, 2))  # line 40, columns 1..3
+        assert output.selected_text == "ine"
+        await _extend(pilot, mod, output, 2, 5)
+        lines = "\n".join(f"line {i}" for i in range(6, 40))
+        assert output.selected_text == f"ne 5\n{lines}\nli"
+
+
+@MODS
+async def test_second_extend_keeps_anchor(mod: str) -> None:
+    app = OutputApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        await _drag(pilot, (0, 4), (2, 4))
+        await _extend(pilot, mod, output, 1, 6)
+        assert output.selected_text == "line 4\nline 5\nli"
+        await _extend(pilot, mod, output, 1, 2)
+        assert output.selected_text == "ine 2\nline 3\nl"
+        await _extend(pilot, mod, output, 1, 5)
+        assert output.selected_text == "line 4\nli"
+
+
+@MODS
+async def test_extend_after_upward_drag(mod: str) -> None:
+    app = OutputApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        await _drag(pilot, (3, 6), (1, 4))  # anchor is line 6, column 3
+        assert output.selected_text == "ine 4\nline 5\nline"
+        await _extend(pilot, mod, output, 1, 8)
+        assert output.selected_text == "e 6\nline 7\nli"
+
+
+@MODS
+async def test_extend_without_selection_does_nothing(mod: str) -> None:
+    app = OutputApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        await _extend(pilot, mod, output, 3, 3)
+        assert output.text_selection is None
+        await pilot.click(ConsoleOutput, offset=(2, 1))  # leaves an anchor
+        await _extend(pilot, mod, output, 3, 5)
+        assert output.text_selection is None
+
+
+@MODS
+async def test_extend_then_copy(mod: str) -> None:
+    app = OutputApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        await _drag(pilot, (0, 1), (2, 1))
+        await _extend(pilot, mod, output, 3, 30)
+        app.query_one(Input).focus()
+        await pilot.press("ctrl+c")
+        lines = "\n".join(f"line {i}" for i in range(1, 30))
+        assert app.clipboard == f"{lines}\nline"
+
+
+@MODS
+async def test_extend_copies_on_select(mod: str) -> None:
+    app = OutputApp(copy_on_select=True)
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        await _drag(pilot, (0, 1), (2, 1))
+        assert app.copied == ["lin"]
+        await _extend(pilot, mod, output, 3, 12)
+        lines = "\n".join(f"line {i}" for i in range(1, 12))
+        assert app.copied == ["lin", f"{lines}\nline"]
+
+
+@MODS
+async def test_extend_from_word_and_select_all(mod: str) -> None:
+    app = OutputApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        await pilot.click(ConsoleOutput, offset=(5, 2), times=2)
+        await pilot.pause()
+        assert output.selected_text == "2"
+        output.write("two words here")
+        await pilot.pause()
+        output.scroll_to(y=0, animate=False)
+        await pilot.pause()
+        await _extend(pilot, mod, output, 2, 4)
+        assert output.selected_text == "2\nline 3\nlin"
+        output.select_all()
+        await pilot.pause()
+        await _extend(pilot, mod, output, 1, 1)
+        assert output.selected_text == "line 0\nli"
+
+
+@MODS
+async def test_double_extend_click_does_not_select_word(mod: str) -> None:
+    app = OutputApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        await _drag(pilot, (0, 1), (2, 1))
+        await pilot.click(ConsoleOutput, offset=(3, 4), times=2, **_mods(mod))
+        await pilot.pause()
+        assert output.selected_text == "line 1\nline 2\nline 3\nline"
+
+
+@MODS
+async def test_extend_anchor_follows_pruned_lines(mod: str) -> None:
+    app = OutputApp(max_lines=20)
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = app.query_one(ConsoleOutput)
+        for i in range(20):
+            output.write(f"line {i}")
+        await pilot.pause()
+        output.scroll_to(y=0, animate=False)
+        await pilot.pause()
+        await _drag(pilot, (0, 6), (2, 6))
+        for i in range(20, 24):
+            output.write(f"line {i}")
+        await pilot.pause()
+        output.scroll_to(y=0, animate=False)
+        await pilot.pause()
+        await _extend(pilot, mod, output, 1, 5)
+        # The drag started on line 6 and 4 lines were pruned, so the anchor is
+        # now line 2. The click on line 5 is the text "line 9".
+        assert output.selected_text == "line 6\nline 7\nline 8\nli"
+
+
+async def test_extend_selection_to_api() -> None:
+    app = OutputApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        output.extend_selection_to(Offset(2, 5))
+        assert output.text_selection is None
+        output.screen.selections = {output: Selection(Offset(1, 2), Offset(3, 2))}
+        output.extend_selection_to(Offset(2, 4))
+        assert output.selected_text == "ine 2\nline 3\nlin"
+        output.extend_selection_to(Offset(0, 999))
+        assert (output.selected_text or "").endswith("line 58\nl")
+
+
+async def test_plain_click_after_extension_clears_it() -> None:
+    app = OutputApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        output = await _long_output(app, pilot)
+        await _drag(pilot, (0, 1), (2, 1))
+        await _extend(pilot, "shift", output, 3, 4)
+        assert output.selected_text is not None
+        await pilot.click(ConsoleOutput, offset=(1, 1))
+        await pilot.pause()
+        assert output.text_selection is None
