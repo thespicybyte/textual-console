@@ -12,6 +12,7 @@
 - `CommandAutoComplete`: an exception from the candidate source no longer stops the
   app. It is logged, and there are no candidates. The README tells which lines the
   source can get (also an empty line on Tab).
+- `CandidateSource` is now public, so hosts can type their candidate source.
 
 ## 0.1.0 (2026-10-17)
 

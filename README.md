@@ -192,6 +192,7 @@ multi-line input only the cursor's line is used, and a completion changes only t
   not assume that there is a first word. If the source raises, there are no candidates
   and the error is logged to the `textual_console` logger. To see it, set up `logging`
   (for example to a file, or `textual.logging.TextualHandler` with `textual console`).
+  To type your source, use `from textual_console import CandidateSource`.
 - The package needs `textual-autocomplete` 4.0.x, because `CommandAutoComplete` overrides
   some of its private methods.
 

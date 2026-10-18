@@ -12,13 +12,13 @@ from textual.widgets import Button
 from textual_autocomplete import AutoComplete, DropdownItem
 
 from textual_console import (
+    CandidateSource,
     CommandAutoComplete,
     CommandHistory,
     CommandItem,
     CompletionHint,
     ConsoleInput,
 )
-from textual_console._autocomplete import CandidateSource
 
 SnapCompare = Callable[..., bool]
 FILES = ["readme.md", "notes.txt", "my file.txt"]
@@ -725,12 +725,16 @@ async def test_tab_on_empty_line_lists_all_candidates() -> None:
 
 
 @pytest.mark.parametrize(
-    "keys",
-    [[], ["space"], ["l", "s", "space", "backslash"]],
+    ("keys", "error"),
+    [
+        ([], "IndexError"),
+        (["space"], "IndexError"),
+        (["l", "s", "space", "backslash"], "ValueError"),
+    ],
     ids=["empty", "space", "trailing-backslash"],
 )
 async def test_failing_source_on_tab_does_not_crash(
-    keys: list[str], caplog: pytest.LogCaptureFixture
+    keys: list[str], error: str, caplog: pytest.LogCaptureFixture
 ) -> None:
     app = SourceApp(first_word_source)
     with caplog.at_level(logging.ERROR, logger="textual_console._autocomplete"):
@@ -745,7 +749,7 @@ async def test_failing_source_on_tab_does_not_crash(
             assert not dropdown_open(app)
             assert prompt.value == before
     assert "candidate source" in caplog.text
-    assert "Error" in caplog.text
+    assert error in caplog.text
 
 
 async def test_failing_source_while_typing_does_not_crash(
