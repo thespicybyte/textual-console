@@ -124,6 +124,10 @@ class CommandAutoComplete(AutoComplete):
     which show help text, and :class:`CompletionHint` rows, which show what to
     type.
 
+    Enter accepts the highlighted option only when it changes the word. When
+    the word already equals the option, Enter submits the line. Tab always
+    accepts.
+
     The candidates are read in the event loop, so a slow source should cache.
 
     Example:
@@ -171,6 +175,10 @@ class CommandAutoComplete(AutoComplete):
             if self.display and self._only_hints():
                 self._keys_with_only_hints(event)
                 return
+            if event.key == "enter" and self.display and self._highlighted_is_typed():
+                # Accepting would not change the word, so Enter submits.
+                self.action_hide()
+                return
         super()._listen_to_messages(event)
         if isinstance(event, TextArea.Changed):
             self._handle_target_update()
@@ -205,6 +213,18 @@ class CommandAutoComplete(AutoComplete):
             event.stop()
         elif event.key == "enter":
             self.action_hide()
+
+    def _highlighted_is_typed(self) -> bool:
+        option_list = self.option_list
+        highlighted = option_list.highlighted
+        if highlighted is None or not option_list.option_count:
+            return False
+        option = option_list.get_option_at_index(highlighted)
+        return (
+            isinstance(option, DropdownItem)
+            and self._is_selectable(option)
+            and option.value == self.get_search_string(self._get_target_state())
+        )
 
     def _skip_hint(self, step: int) -> None:
         option_list = self.option_list

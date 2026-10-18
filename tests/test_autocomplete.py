@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Sequence
 
+import pytest
 from textual.app import App, ComposeResult
 from textual.pilot import Pilot
 from textual.widgets import Button
@@ -92,6 +93,91 @@ async def test_dropdown_open_enter_accepts_without_submit() -> None:
         await pilot.press("enter")
         assert app.lines == ["exit "]
         assert prompt.command_history.entries == ["exit "]
+
+
+@pytest.mark.parametrize(
+    "candidates",
+    [["pwd", "pwdx", "ps", "cd"], ["pwd", "pwait-dump", "ps"]],
+)
+async def test_enter_submits_when_word_equals_highlighted_option(
+    candidates: list[str],
+) -> None:
+    app = CompleteApp(candidates)
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d")
+        await pilot.pause()
+        assert dropdown_open(app)
+        assert app.query_one(AutoComplete).option_list.highlighted == 0
+        await pilot.press("enter")
+        assert app.lines == ["pwd"]
+        assert prompt.value == ""
+        assert not dropdown_open(app)
+
+
+async def test_enter_accepts_other_highlighted_option() -> None:
+    app = CompleteApp(["pwd", "pwdx"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d", "down", "enter")
+        assert prompt.value == "pwdx "
+        assert app.lines == []
+
+
+async def test_enter_submits_after_moving_back_to_the_exact_option() -> None:
+    app = CompleteApp(["pwd", "pwdx"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d", "down", "up", "enter")
+        assert app.lines == ["pwd"]
+
+
+async def test_tab_still_accepts_exact_match() -> None:
+    app = CompleteApp(["pwd", "pwdx"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d", "tab")
+        assert prompt.value == "pwd "
+        assert app.lines == []
+
+
+async def test_enter_accepts_when_only_the_case_differs() -> None:
+    app = CompleteApp(["PWD", "pwd2"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d", "enter")
+        assert prompt.value == "PWD "
+        assert app.lines == []
+
+
+async def test_enter_submits_exact_match_in_dropdown_opened_with_tab() -> None:
+    app = CompleteApp(["pwd", "pwdx"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("p", "w", "d", "escape")
+        assert not dropdown_open(app)
+        await pilot.press("tab")
+        assert dropdown_open(app)
+        await pilot.press("enter")
+        assert app.lines == ["pwd"]
+
+
+async def test_enter_submits_exact_match_after_an_earlier_word() -> None:
+    app = CompleteApp(["pwd", "pwdx"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press(*"sudo pwd")
+        await pilot.pause()
+        assert dropdown_open(app)
+        await pilot.press("enter")
+        assert app.lines == ["sudo pwd"]
 
 
 async def test_dropdown_closed_up_down_walk_history() -> None:
