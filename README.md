@@ -187,6 +187,11 @@ multi-line input only the cursor's line is used, and a completion changes only t
   disabled row that tells what to type. It is never applied).
 - **The candidate source is synchronous.** It runs on the event loop. If the source is
   slow (files, network), cache the result.
+- **The candidate source gets any line.** On Tab it can be empty, only spaces, or end in
+  a space, a closed quote or a backslash. It is never a line with an unclosed quote. Do
+  not assume that there is a first word. If the source raises, there are no candidates
+  and the error is logged to the `textual_console` logger. To see it, set up `logging`
+  (for example to a file, or `textual.logging.TextualHandler` with `textual console`).
 - The package needs `textual-autocomplete` 4.0.x, because `CommandAutoComplete` overrides
   some of its private methods.
 
