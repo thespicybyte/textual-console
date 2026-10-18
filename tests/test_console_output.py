@@ -9,7 +9,8 @@ from textual.app import App, ComposeResult
 from textual.geometry import Offset
 from textual.pilot import Pilot
 from textual.selection import Selection
-from textual.widgets import Input
+from textual.widget import Widget
+from textual.widgets import Input, Static
 
 from textual_console import ConsoleOutput
 
@@ -552,6 +553,18 @@ def _mods(mod: str) -> dict[str, bool]:
     return {"shift": mod == "shift", "control": mod == "ctrl"}
 
 
+async def _up_only(
+    pilot: Pilot[None], widget: type[Widget], offset: tuple[int, int], mod: str
+) -> None:
+    """Send a mouse up without the mouse move that ``Pilot.mouse_up`` adds.
+
+    A real terminal sends no move between the press and the release.
+    """
+    await pilot._post_mouse_events(
+        [events.MouseUp], widget=widget, offset=offset, button=1, **_mods(mod)
+    )
+
+
 async def _long_output(app: OutputApp, pilot: Pilot[None]) -> ConsoleOutput:
     output = app.query_one(ConsoleOutput)
     for i in range(60):
@@ -751,17 +764,24 @@ async def test_plain_click_after_extension_clears_it() -> None:
         assert output.text_selection is None
 
 
+class StackedApp(OutputApp):
+    def compose(self) -> ComposeResult:
+        yield Static("above", id="above")
+        yield from super().compose()
+
+
 @MODS
-async def test_extend_uses_mouse_up_position_when_down_is_wrong(mod: str) -> None:
-    # Some terminal setups (herdr in Ghostty) send a modified mouse down with a
-    # wrong position, and the real position with the mouse up and the click.
-    app = OutputApp()
-    async with app.run_test(size=(40, 10)) as pilot:
+async def test_extend_when_down_is_wrong(mod: str) -> None:
+    # Some terminal setups (herdr in Ghostty) send a modified mouse down at a
+    # wrong position, and the real one with the mouse up. The down can land on
+    # another widget, here one above the output.
+    app = StackedApp()
+    async with app.run_test(size=(40, 12)) as pilot:
         output = await _long_output(app, pilot)
         await _drag(pilot, (2, 1), (4, 2))
         mods = _mods(mod)
-        await pilot.mouse_down(ConsoleOutput, offset=(0, 0), **mods)
-        await pilot.mouse_up(ConsoleOutput, offset=(3, 5), **mods)
+        await pilot.mouse_down("#above", offset=(1, 0), **mods)
+        await _up_only(pilot, ConsoleOutput, (3, 5), mod)
         await pilot.pause()
         assert output.selected_text == "ne 1\nline 2\nline 3\nline 4\nline"
         # The same press with a correct position still works.
@@ -769,3 +789,20 @@ async def test_extend_uses_mouse_up_position_when_down_is_wrong(mod: str) -> Non
         await pilot.mouse_up(ConsoleOutput, offset=(1, 6), **mods)
         await pilot.pause()
         assert (output.selected_text or "").endswith("line 5\nli")
+
+
+@MODS
+async def test_extend_copies_on_select_when_down_is_wrong(mod: str) -> None:
+    app = StackedApp(copy_on_select=True)
+    async with app.run_test(size=(40, 12)) as pilot:
+        output = await _long_output(app, pilot)
+        await _drag(pilot, (2, 1), (4, 2))
+        assert app.copied == ["ne 1\nline "]
+        mods = _mods(mod)
+        await pilot.mouse_down("#above", offset=(1, 0), **mods)
+        await _up_only(pilot, ConsoleOutput, (3, 5), mod)
+        await pilot.pause()
+        expected = "ne 1\nline 2\nline 3\nline 4\nline"
+        assert output.selected_text == expected
+        assert app.copied[-1] == expected
+        assert app.copied.count(expected) == 1

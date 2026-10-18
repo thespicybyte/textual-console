@@ -202,7 +202,6 @@ class ConsoleInput(TextArea):
         self._double_escape_clear = window
         self._first_escape: float | None = None
         self._paste_text = ""
-        self._extend_anchor: tuple[int, int] | None = None
         self.recalled_value: str | None = None
         """The text that came from the history, or ``None``.
 
@@ -425,24 +424,19 @@ class ConsoleInput(TextArea):
         self._paste(self.app.clipboard)
 
     async def _on_mouse_down(self, event: events.MouseDown) -> None:
-        self._extend_anchor = None
-        if not (event.shift or event.ctrl) or event.button != 1:
-            return  # TextArea._on_mouse_down runs as before
-        event.prevent_default()
-        if self.selection.is_empty:
-            return  # no selection: do nothing, the cursor stays
-        anchor = self.selection.start
-        await super()._on_mouse_down(event)  # cursor, mouse capture, drag state
-        self.selection = Selection(anchor, self.selection.end)
-        # Some terminal setups (for example herdr in Ghostty) send a wrong
-        # position with a modified mouse down, so the end is set on mouse up.
-        self._extend_anchor = anchor
+        if (event.shift or event.ctrl) and event.button == 1:
+            # The extension happens on mouse up. Some terminal setups (for
+            # example herdr in Ghostty) send a wrong position with a modified
+            # mouse down, so the down can even go to another widget.
+            event.prevent_default()
 
     async def _on_mouse_up(self, event: events.MouseUp) -> None:
-        anchor, self._extend_anchor = self._extend_anchor, None
-        if anchor is not None:
-            target = self.get_target_document_location(event)
-            self.selection = Selection(anchor, target)
+        if not (event.shift or event.ctrl) or event.button != 1:
+            return
+        if self.selection.is_empty:
+            return  # no selection: do nothing, the cursor stays
+        target = self.get_target_document_location(event)
+        self.selection = Selection(self.selection.start, target)
 
     @on(events.MouseDown)
     def _take_paste_text(self, event: events.MouseDown) -> None:

@@ -7,6 +7,7 @@ from textual.geometry import Offset
 from textual.pilot import Pilot
 from textual.selection import Selection
 from textual.suggester import SuggestFromList, SuggestionReady
+from textual.widget import Widget
 from textual.widgets import Button
 from textual.widgets.text_area import Selection as TextSelection
 
@@ -828,6 +829,18 @@ def _mods(mod: str) -> dict[str, bool]:
     return {"shift": mod == "shift", "control": mod == "ctrl"}
 
 
+async def _up_only(
+    pilot: Pilot[None], widget: type[Widget], offset: tuple[int, int], mod: str
+) -> None:
+    """Send a mouse up without the mouse move that ``Pilot.mouse_up`` adds.
+
+    A real terminal sends no move between the press and the release.
+    """
+    await pilot._post_mouse_events(
+        [events.MouseUp], widget=widget, offset=offset, button=1, **_mods(mod)
+    )
+
+
 async def _tall_prompt(app: InputApp, pilot: Pilot[None]) -> ConsoleInput:
     prompt = app.query_one(ConsoleInput)
     prompt.focus()
@@ -949,15 +962,36 @@ async def test_modified_middle_click_still_pastes() -> None:
 
 
 @MODS
-async def test_extend_uses_mouse_up_position_when_down_is_wrong(mod: str) -> None:
-    # Some terminal setups (herdr in Ghostty) send a modified mouse down with a
-    # wrong position, and the real position with the mouse up.
+@pytest.mark.parametrize("output_selected", [False, True])
+async def test_extend_when_down_goes_to_another_widget(
+    mod: str, output_selected: bool
+) -> None:
+    # Some terminal setups (herdr in Ghostty) send a modified mouse down at a
+    # wrong position, here over the output, and the real one with the mouse up.
     app = InputApp(max_height=4)
     async with app.run_test() as pilot:
         prompt = await _tall_prompt(app, pilot)
+        output = app.query_one(ConsoleOutput)
+        output.write("some text")
+        await pilot.pause()
+        if output_selected:
+            output.select_all()
         prompt.selection = TextSelection((1, 1), (1, 3))
         mods = _mods(mod)
-        await pilot.mouse_down(ConsoleInput, offset=(2, 1), **mods)
-        await pilot.mouse_up(ConsoleInput, offset=(2 + 2, 1 + 2), **mods)
+        await pilot.mouse_down(ConsoleOutput, offset=(1, 0), **mods)
+        await _up_only(pilot, ConsoleInput, (2 + 2, 1 + 2), mod)
         await pilot.pause()
         assert prompt.selection == TextSelection((1, 1), (2, 2))
+
+
+@MODS
+async def test_extend_ignores_up_without_modifier_or_selection(mod: str) -> None:
+    app = InputApp(max_height=4)
+    async with app.run_test() as pilot:
+        prompt = await _tall_prompt(app, pilot)
+        prompt.move_cursor((1, 1))
+        await pilot.mouse_up(ConsoleInput, offset=(4, 3), **_mods(mod))
+        assert prompt.selection == TextSelection((1, 1), (1, 1))
+        prompt.selection = TextSelection((1, 1), (1, 3))
+        await pilot.mouse_up(ConsoleInput, offset=(4, 3))
+        assert prompt.selection == TextSelection((1, 1), (1, 3))
