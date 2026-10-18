@@ -402,7 +402,8 @@ class ConsoleInput(TextArea):
         # TextArea._on_key inserts a newline for Enter, and Textual calls it
         # after this method. Preventing the default stops that, and leaving the
         # event unstopped lets it reach the ``enter`` binding. An open dropdown
-        # stops the event first, so Enter completes instead of submitting.
+        # stops the event first, so Enter completes instead of submitting, unless
+        # the word already equals the highlighted option.
         if event.key == "enter":
             event.prevent_default()
 

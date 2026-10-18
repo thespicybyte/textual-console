@@ -6,6 +6,9 @@
   selection, also past lines that scrolled out of view. The end point is the place
   where the mouse button is released, because some terminal setups (herdr in Ghostty)
   report a wrong position for the press.
+- `CommandAutoComplete`: Enter submits the line when the typed word already equals the
+  highlighted option. Before, Enter accepted the option and added a space, and a second
+  Enter was needed. Tab still accepts the option.
 
 ## 0.1.0 (2026-10-17)
 
