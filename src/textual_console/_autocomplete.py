@@ -9,7 +9,7 @@ from typing import Any
 from rich.cells import cell_len
 from textual import events
 from textual.content import Content
-from textual.geometry import Offset
+from textual.geometry import Offset, Size
 from textual.widgets import TextArea
 from textual.widgets.option_list import Option
 from textual_autocomplete import (
@@ -312,10 +312,11 @@ class CommandAutoComplete(AutoComplete):
         # The height limit from the last placement is set inline, because it
         # depends on the screen. It must not stay for the next options.
         self.option_list.styles.max_height = None
+        self.option_list.styles.border = None
         self._place()
         self.call_after_refresh(self._place)
 
-    def _place(self) -> None:
+    def _place(self, settle: bool = True) -> None:
         if self.absolute_offset is None or not self.display:
             return
         x, y = self.target.cursor_screen_offset
@@ -330,9 +331,21 @@ class CommandAutoComplete(AutoComplete):
             # No side fits: use the bigger one and let the list scroll.
             height = max(below, above)
             self.option_list.styles.max_height = height
+            if height <= self.option_list.styles.gutter.height:
+                # A border would leave no row for an option.
+                self.option_list.styles.border = ("none", "transparent")
         row = y + 1 if height <= below else word_top - height
         left = word_x - self.option_list.styles.gutter.left
         self.absolute_offset = Offset(max(0, min(left, screen.width - width)), row)
+        if settle:
+            # The size can still change after this refresh, for example when
+            # the dropdown has just been shown. Place it again if it did.
+            size = self.option_list.outer_size
+            self.call_after_refresh(self._settle, size)
+
+    def _settle(self, placed_for: Size) -> None:
+        if self.option_list.outer_size != placed_for:
+            self._place(settle=False)
 
     def _word_start(self, x: int, y: int) -> Offset:
         """Return the screen cell of the first visible character of the word."""
@@ -475,3 +488,4 @@ class CommandAutoComplete(AutoComplete):
     def _rebuild_options(self, target_state: TargetState, search_string: str) -> None:
         super()._rebuild_options(target_state, search_string)
         self._skip_hint(1)
+        self.call_after_refresh(self._place)

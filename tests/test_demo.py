@@ -146,6 +146,19 @@ async def test_dropdown_returns_below_when_options_shrink() -> None:
         assert dropdown.region.y == prompt.cursor_screen_offset.y + 1
 
 
+async def test_dropdown_shows_an_option_on_a_tiny_screen() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(100, 5)) as pilot:
+        await pilot.press(*"echo ", "tab")
+        await pilot.pause()
+        dropdown = app.query_one(CommandAutoComplete)
+        assert dropdown.display
+        # There is no room for a border, so only the option row is shown.
+        assert dropdown.region.height >= 1
+        assert dropdown.region.bottom <= app.screen.size.height
+        assert dropdown.option_list.content_region.height >= 1
+
+
 def test_main_parses_arguments(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     seen: list[ConsoleDemo] = []
     monkeypatch.setattr(ConsoleDemo, "run", lambda self: seen.append(self))
