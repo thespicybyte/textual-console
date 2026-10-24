@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- `CommandAutoComplete`: the dropdown has a round grey border and a `$panel`
+  background, so it stands out from the input and output. To change them, style
+  `CommandAutoComplete` and `CommandAutoComplete AutoCompleteList`. The dropdown shows
+  10 options before it scrolls, not 12.
+- `CommandAutoComplete`: the option text starts under the first character of the typed
+  word. Before, it started one cell left of the cursor. The dropdown never covers the
+  typed word, also when the word wraps. It is never wider than the screen (long rows end
+  in `…`), and when it is taller than the room above and below the cursor, it scrolls.
+
 ## 0.3.0 (2026-10-23)
 
 - `CommandAutoComplete`: completes the word that ends at the cursor, also in the middle
