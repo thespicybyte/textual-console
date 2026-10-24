@@ -154,9 +154,10 @@ async def test_dropdown_shows_an_option_on_a_tiny_screen() -> None:
         dropdown = app.query_one(CommandAutoComplete)
         assert dropdown.display
         # There is no room for a border, so only the option row is shown.
+        assert dropdown.option_list.styles.border.top[0] in ("", "none")
+        assert dropdown.region.height == dropdown.option_list.content_region.height
         assert dropdown.region.height >= 1
         assert dropdown.region.bottom <= app.screen.size.height
-        assert dropdown.option_list.content_region.height >= 1
 
 
 async def test_dropdown_follows_the_cursor_when_the_screen_shrinks() -> None:
