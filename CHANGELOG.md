@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-23)
 
 - `CommandAutoComplete`: completes the word that ends at the cursor, also in the middle
   of a line. Before, it only completed the last word with the cursor at the end of the
