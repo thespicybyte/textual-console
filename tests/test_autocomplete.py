@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterator, Sequence
 import pytest
 from textual.app import App, ComposeResult
 from textual.pilot import Pilot
-from textual.widgets import Button
+from textual.widgets import Button, Static
 from textual_autocomplete import AutoComplete, DropdownItem
 
 from textual_console import (
@@ -942,3 +942,202 @@ async def test_source_recovers_after_failure(
             await pilot.pause()
             assert dropdown_open(app)
     assert "boom" in caplog.text
+
+
+class PlaceApp(App[None]):
+    """An input docked at the bottom, or at the top with a margin, to test placement."""
+
+    def __init__(
+        self, candidates: Sequence[str], css: str = "", margin_top: int | None = None
+    ) -> None:
+        super().__init__()
+        self.candidates = candidates
+        self.css = css
+        self.margin_top = margin_top
+
+    def compose(self) -> ComposeResult:
+        yield ConsoleInput(id="prompt")
+        yield CommandAutoComplete("#prompt", lambda line: self.candidates)
+
+    def on_mount(self) -> None:
+        dock = "bottom" if self.margin_top is None else "top"
+        margin = self.margin_top or 0
+        self.stylesheet.add_source(
+            f"#prompt {{ dock: {dock}; margin-top: {margin}; }}" + self.css
+        )
+        self.stylesheet.reparse()
+        self.stylesheet.update(self)
+
+
+async def type_text(app: App[None], pilot: Pilot[None], text: str) -> None:
+    app.query_one(ConsoleInput).focus()
+    await pilot.press(*text)
+    await pilot.pause()
+
+
+async def test_option_text_starts_under_the_word() -> None:
+    app = CompleteApp(COMMANDS)
+    async with app.run_test() as pilot:
+        await type_text(app, pilot, "he")
+        prompt = app.query_one(ConsoleInput)
+        content = app.query_one(AutoComplete).option_list.content_region
+        assert content.x == prompt.cursor_screen_offset.x - len("he")
+        prompt.value = "echo he there"
+        prompt.move_cursor((0, 7))
+        await pilot.pause()
+        content = app.query_one(AutoComplete).option_list.content_region
+        assert content.x == prompt.cursor_screen_offset.x - len("he")
+
+
+async def test_option_text_starts_at_the_cursor_after_a_space() -> None:
+    app = CompleteApp(COMMANDS)
+    async with app.run_test() as pilot:
+        await type_text(app, pilot, "echo ")
+        await pilot.press("tab")
+        await pilot.pause()
+        prompt = app.query_one(ConsoleInput)
+        assert dropdown_open(app)
+        content = app.query_one(AutoComplete).option_list.content_region
+        assert content.x == prompt.cursor_screen_offset.x
+
+
+async def test_dropdown_stays_above_a_wrapped_word() -> None:
+    word = "a" * 24
+    app = PlaceApp([word + "b"])
+    async with app.run_test(size=(20, 12)) as pilot:
+        await type_text(app, pilot, word)
+        prompt = app.query_one(ConsoleInput)
+        dropdown = app.query_one(CommandAutoComplete)
+        assert dropdown_open(app)
+        x, y = prompt.cursor_screen_offset
+        wrapped = prompt.wrapped_document
+        _, word_row = wrapped.location_to_offset((0, 0))
+        _, cursor_row = wrapped.location_to_offset((0, len(word)))
+        word_top = y - (cursor_row - word_row)
+        assert cursor_row > word_row
+        assert dropdown.region.bottom <= word_top
+
+
+async def test_dropdown_keeps_a_word_in_mid_row_visible() -> None:
+    text = "echo hello there aaaaaaa"
+    app = PlaceApp([text.rsplit(" ", 1)[1] + "b"])
+    async with app.run_test(size=(20, 12)) as pilot:
+        await type_text(app, pilot, text)
+        prompt = app.query_one(ConsoleInput)
+        dropdown = app.query_one(CommandAutoComplete)
+        assert dropdown_open(app)
+        _, y = prompt.cursor_screen_offset
+        wrapped = prompt.wrapped_document
+        start = len("echo hello there ")
+        _, start_row = wrapped.location_to_offset((0, start))
+        _, cursor_row = wrapped.location_to_offset((0, len(text)))
+        assert dropdown.region.bottom <= y - (cursor_row - start_row)
+        cursor_x, _ = wrapped.location_to_offset((0, len(text)))
+        start_x, _ = wrapped.location_to_offset((0, start))
+        word_x = prompt.cursor_screen_offset.x - (cursor_x - start_x)
+        assert dropdown.option_list.content_region.x == word_x
+
+
+async def test_dropdown_does_not_leave_the_left_edge() -> None:
+    app = PlaceApp(COMMANDS, css="#prompt { border: none; padding: 0; }")
+    async with app.run_test(size=(40, 12)) as pilot:
+        await type_text(app, pilot, "he")
+        dropdown = app.query_one(CommandAutoComplete)
+        assert dropdown_open(app)
+        assert dropdown.region.x == 0
+        assert dropdown.option_list.content_region.x == 1
+
+
+async def test_dropdown_stays_on_a_narrow_screen() -> None:
+    long = "x" + "b" * 41
+    app = PlaceApp(["xa", long])
+    async with app.run_test(size=(30, 12)) as pilot:
+        await type_text(app, pilot, "x")
+        dropdown = app.query_one(CommandAutoComplete)
+        assert dropdown_open(app)
+        assert dropdown.region.width <= 30
+        assert dropdown.region.right <= 30
+        await pilot.press("a")
+        await pilot.press("backspace")
+        await pilot.pause()
+        assert dropdown.region.width <= 30
+        assert dropdown.region.right <= 30
+
+
+class MidScreenApp(App[None]):
+    """An input in the middle of the screen, so there are rows on both sides."""
+
+    def __init__(self, above: int, below: int) -> None:
+        super().__init__()
+        self.candidates = [f"cmd{n:02d}" for n in range(12)]
+        self.above = above
+        self.below = below
+
+    def compose(self) -> ComposeResult:
+        yield CommandAutoComplete("#prompt", lambda line: self.candidates)
+        yield Static(id="above")
+        yield ConsoleInput(id="prompt")
+        yield Static(id="below")
+
+    def on_mount(self) -> None:
+        self.query_one("#above").styles.height = self.above
+        self.query_one("#below").styles.height = self.below
+
+
+async def test_dropdown_scrolls_below_when_it_fits_on_neither_side() -> None:
+    app = MidScreenApp(above=4, below=0)
+    async with app.run_test(size=(40, 13)) as pilot:
+        await type_text(app, pilot, "c")
+        dropdown = app.query_one(CommandAutoComplete)
+        option_list = dropdown.option_list
+        _, y = app.query_one(ConsoleInput).cursor_screen_offset
+        assert dropdown.region.y == y + 1
+        assert dropdown.region.bottom == 13
+        assert option_list.outer_size.height == dropdown.region.height
+        for _ in range(11):
+            await pilot.press("down")
+        await pilot.pause()
+        assert option_list.highlighted == 11
+        assert option_list.scroll_y > 0
+        assert option_list.scroll_y + option_list.scrollable_content_region.height > 11
+
+
+async def test_dropdown_scrolls_above_when_it_fits_on_neither_side() -> None:
+    app = MidScreenApp(above=7, below=1)
+    async with app.run_test(size=(40, 13)) as pilot:
+        await type_text(app, pilot, "c")
+        dropdown = app.query_one(CommandAutoComplete)
+        _, y = app.query_one(ConsoleInput).cursor_screen_offset
+        assert dropdown.region.y == 0
+        assert dropdown.region.bottom == y
+
+
+async def test_dropdown_height_limit_is_cleared() -> None:
+    app = MidScreenApp(above=4, below=0)
+    async with app.run_test(size=(40, 13)) as pilot:
+        await type_text(app, pilot, "c")
+        option_list = app.query_one(CommandAutoComplete).option_list
+        assert option_list.styles.inline.max_height is not None
+        app.candidates = ["cmd00"]
+        await pilot.press("backspace", "c")
+        await pilot.pause()
+        assert option_list.styles.inline.max_height is None
+        assert option_list.outer_size.height == 3
+
+
+async def test_dropdown_has_a_round_border_that_css_can_remove() -> None:
+    app = CompleteApp(COMMANDS)
+    async with app.run_test() as pilot:
+        await type_text(app, pilot, "he")
+        assert app.query_one(AutoComplete).option_list.styles.border.top[0] == "round"
+
+    class Plain(CompleteApp):
+        CSS = "CommandAutoComplete AutoCompleteList { border: none; }"
+
+    app = Plain(COMMANDS)
+    async with app.run_test() as pilot:
+        await type_text(app, pilot, "he")
+        prompt = app.query_one(ConsoleInput)
+        option_list = app.query_one(AutoComplete).option_list
+        assert option_list.outer_size.height == option_list.option_count
+        assert option_list.content_region.x == prompt.cursor_screen_offset.x - 2
