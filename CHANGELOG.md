@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- `CommandAutoComplete`: completes the word that ends at the cursor, also in the middle
+  of a line. Before, it only completed the last word with the cursor at the end of the
+  line. The text after the cursor is kept, and a space is added only at the end of the
+  line. There is no completion when the cursor is inside a word.
+- `CandidateSource` gets the line up to the cursor. At the end of the line this is the
+  whole line, as before.
+
 ## 0.2.0 (2026-10-18)
 
 - `ConsoleOutput` and `ConsoleInput`: shift-click (or ctrl-click) moves the end of the

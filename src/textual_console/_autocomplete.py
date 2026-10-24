@@ -1,4 +1,4 @@
-"""Autocomplete for the last word of a command line."""
+"""Autocomplete for the word at the cursor of a command line."""
 
 import logging
 import shlex
@@ -20,12 +20,12 @@ from textual_autocomplete import (
 )
 
 from textual_console._console_input import ConsoleInput
-from textual_console._tokens import last_token_span
+from textual_console._tokens import token_span_at
 
 _log = logging.getLogger(__name__)
 
 CandidateSource = Callable[[str], Iterable[str | DropdownItem]]
-"""A function that gets the cursor's line and returns the possible completions.
+"""A function that gets the cursor's line up to the cursor and returns the completions.
 
 It can get any line: also an empty line, only spaces, or a line that ends in a
 space, a quote or a backslash. It never gets a line with an unclosed quote.
@@ -109,20 +109,22 @@ class CompletionHint(DropdownItem):
 
 
 class CommandAutoComplete(AutoComplete):
-    """Completes the last word of the cursor's line in the target input.
+    """Completes the word that ends at the cursor in the target input.
 
     ``textual-autocomplete`` only supports ``Input`` targets, so this class
     overrides some of its private methods to work with a :class:`ConsoleInput`.
     The package is pinned to a version these overrides were written for.
 
-    The search string is the last shell-style word. Choosing an option
-    replaces only that word and adds a space. The text before it stays as typed,
-    and a completion that needs quoting is quoted. Only the cursor's line is
-    used: the candidate source gets that line, and a completion changes only
-    that line. No suggestions are made when
-    the line is empty, ends in a space or a quote, has an unclosed quote, or the
-    cursor is not at the end. Nothing is suggested while the target shows a
-    value from its history (its ``recalled_value`` attribute).
+    The search string is the shell-style word that ends at the cursor. Choosing
+    an option replaces only that word. The text before it stays as typed, the
+    text after the cursor is kept, and a completion that needs quoting is
+    quoted. A space is added only at the end of the line. Only the cursor's line
+    is used: the candidate source gets that line up to the cursor, and a
+    completion changes only that line. No suggestions are made when the line
+    is empty, ends in a space or a quote before the cursor, has an unclosed
+    quote before the cursor, or the cursor is inside a word. Nothing is
+    suggested while the target shows a value from its history (its
+    ``recalled_value`` attribute).
 
     Tab with the dropdown closed asks for the candidates of the current word,
     which can be empty, and opens the dropdown, also after a space. A single
@@ -152,10 +154,10 @@ class CommandAutoComplete(AutoComplete):
 
         Args:
             target: The input to complete, or a selector for it.
-            candidates: A function that gets the cursor's line and returns the
-                possible completions for the last word. They are filtered
-                against that word. See :data:`CandidateSource` for the lines
-                it can get.
+            candidates: A function that gets the cursor's line up to the cursor
+                and returns the possible completions for the word that ends
+                at the cursor. They are filtered against that word. See
+                :data:`CandidateSource` for the lines it can get.
             **autocomplete_kwargs: Other arguments for
                 :class:`textual_autocomplete.AutoComplete`.
         """
@@ -254,10 +256,8 @@ class CommandAutoComplete(AutoComplete):
             return False
         row, column = target.cursor_location
         line = target.document.get_line(row)
-        if column != len(line):
-            return False
         try:
-            last_token_span(line)
+            token_span_at(line, column)
         except ValueError:
             return False
         self._explicit = True
@@ -313,21 +313,22 @@ class CommandAutoComplete(AutoComplete):
         return TargetState(text=target.document.get_line(row), cursor_position=column)
 
     def get_search_string(self, target_state: TargetState) -> str:
-        """Return the last word of the line, or an empty string for no search."""
-        text = target_state.text
-        if not text or target_state.cursor_position != len(text):
+        """Return the word that ends at the cursor, or "" for no search."""
+        text, cursor = target_state.text, target_state.cursor_position
+        before = text[:cursor]
+        if not before:
             return ""
-        if text[-1].isspace() or (not self._explicit and text[-1] in "'\""):
+        if before[-1].isspace() or (not self._explicit and before[-1] in "'\""):
             return ""
         try:
-            start, end = last_token_span(text)
+            start, end = token_span_at(text, cursor)
             words = shlex.split(text[start:end])
         except ValueError:
             return ""
         return words[0] if words else ""
 
     def get_candidates(self, target_state: TargetState) -> list[DropdownItem]:
-        """Return the options for the current line."""
+        """Return the options for the current line up to the cursor."""
         if not self._explicit:
             recalled = self.target.recalled_value
             if recalled is not None:
@@ -336,13 +337,12 @@ class CommandAutoComplete(AutoComplete):
                 self.target.recalled_value = None
             if not self.get_search_string(target_state):
                 return []
+        line = target_state.text[: target_state.cursor_position]
         try:
-            results = list(self._source(target_state.text))
+            results = list(self._source(line))
         except Exception:
             _log.exception(
-                "The candidate source %r failed for the line %r",
-                self._source,
-                target_state.text,
+                "The candidate source %r failed for the line %r", self._source, line
             )
             return []
         return [
@@ -351,16 +351,17 @@ class CommandAutoComplete(AutoComplete):
         ]
 
     def apply_completion(self, value: str, state: TargetState) -> None:
-        """Replace the last word of the cursor's line, and add a space."""
+        """Replace the word at the cursor. Add a space at the end of the line."""
         try:
-            start, end = last_token_span(state.text)
+            start, end = token_span_at(state.text, state.cursor_position)
         except ValueError:
             return
         target = self.target
         if target.read_only:
             return
         row = target.cursor_location[0]
-        new = f"{shlex.quote(value)} "
+        at_end = end == len(state.text)
+        new = shlex.quote(value) + (" " if at_end else "")
         target.replace(new, (row, start), (row, end))
         target.move_cursor((row, start + len(new)))
 

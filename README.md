@@ -10,7 +10,7 @@ history and autocomplete (also from `argparse` parsers), and a plain-text transc
   and triple-click (line) select text. `ctrl+c` copies it.
 - `ConsoleInput`: a command prompt (a `TextArea`) that grows with its text, with a prompt
   string, history, a quiet Tab and middle-click paste.
-- `CommandAutoComplete`: completes the last word of the cursor's line. Tab opens it.
+- `CommandAutoComplete`: completes the word at the cursor. Tab opens it.
 - `ArgparseCompleter`: gives `CommandAutoComplete` its candidates from `argparse` parsers.
 - `ConsoleLog`: a plain-text transcript file of the output.
 
@@ -170,9 +170,12 @@ shows which one your terminal does.
 CommandAutoComplete("#prompt", lambda line: ["open", "close", "help"])
 ```
 
-The function gets the line of the cursor and returns the options for its last word. The
-text before the last word stays as typed. A completion that needs quotes is quoted. In a
-multi-line input only the cursor's line is used, and a completion changes only that line.
+The function gets the line of the cursor, up to the cursor, and returns the options for
+the word that ends at the cursor. The text before the word stays as typed, and the text
+after the cursor is kept. A space is added only at the end of the line. A completion that
+needs quotes is quoted. In a multi-line input only the cursor's line is used, and a
+completion changes only that line. When the cursor is inside a word, there is no
+completion and Tab does what the input does.
 
 - **Automatic opening:** the dropdown opens while you type a word. It does not open after
   a space, in an empty line, or while you walk the history.

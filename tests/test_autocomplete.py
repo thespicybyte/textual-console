@@ -248,7 +248,7 @@ async def test_no_suggestions_in_odd_states() -> None:
             await pilot.pause()
             assert not dropdown_open(app), text
         prompt.value = "open re"
-        prompt.cursor_position = 2
+        prompt.cursor_position = 2  # inside the word "open"
         await pilot.pause()
         assert not dropdown_open(app)
 
@@ -460,15 +460,149 @@ async def test_tab_with_candidates_keeps_focus_when_tab_moves_focus() -> None:
         assert app.focused is prompt
 
 
-async def test_tab_mid_line_does_not_open() -> None:
+@pytest.mark.parametrize("cursor", [1, 3])
+async def test_tab_inside_a_word_does_not_open(cursor: int) -> None:
     app = CompleteApp(["a", "b"])
     async with app.run_test() as pilot:
         prompt = app.query_one(ConsoleInput)
         prompt.focus()
         prompt.value = "go x"
-        prompt.cursor_position = 1
+        prompt.cursor_position = cursor
         await pilot.pause()
         await pilot.press("tab")
+        assert not dropdown_open(app)
+        assert prompt.value == "go x"
+
+
+async def _mid_line(
+    pilot: Pilot[None], value: str, cursor: int, key: str | None = "tab"
+) -> ConsoleInput:
+    prompt = pilot.app.query_one(ConsoleInput)
+    prompt.focus()
+    prompt.value = value
+    prompt.cursor_position = cursor
+    await pilot.pause()
+    if key == "tab" and dropdown_open(pilot.app):
+        await pilot.press("escape")  # Tab then opens it, as the user asks
+    if key:
+        await pilot.press(key)
+        await pilot.pause()
+    return prompt
+
+
+async def test_tab_mid_line_completes_word_and_keeps_rest() -> None:
+    app = CompleteApp(["--path"])
+    async with app.run_test() as pilot:
+        prompt = await _mid_line(pilot, "upload --pa foobar", 11)
+        assert prompt.value == "upload --path foobar"
+        assert prompt.cursor_location == (0, 13)
+        assert not dropdown_open(app)
+
+
+async def test_tab_mid_line_with_several_candidates_opens_dropdown() -> None:
+    app = CompleteApp(["--path", "--pattern"])
+    async with app.run_test() as pilot:
+        prompt = await _mid_line(pilot, "upload --pa foobar", 11)
+        assert dropdown_open(app)
+        assert len(option_texts(app)) == 2
+        assert prompt.value == "upload --pa foobar"
+        await pilot.press("down", "tab")
+        assert prompt.value == "upload --pattern foobar"
+
+
+async def test_tab_mid_line_with_no_candidates_falls_through() -> None:
+    app = CompleteApp([], tab_moves_focus=True)
+    async with app.run_test() as pilot:
+        prompt = await _mid_line(pilot, "upload --pa foobar", 11)
+        assert app.focused is not prompt
+        assert prompt.value == "upload --pa foobar"
+
+
+async def test_source_gets_the_line_up_to_the_cursor() -> None:
+    seen: list[str] = []
+
+    def source(line: str) -> list[str]:
+        seen.append(line)
+        return ["--path", "--pattern"]
+
+    app = SourceApp(source)
+    async with app.run_test() as pilot:
+        await _mid_line(pilot, "upload --pa foobar", 11)
+        assert seen[-1] == "upload --pa"
+
+
+async def test_typing_mid_line_suggests_and_enter_accepts() -> None:
+    app = CompleteApp(["--path", "--pattern"])
+    async with app.run_test() as pilot:
+        prompt = await _mid_line(pilot, "upload --p foobar", 10, key="a")
+        assert dropdown_open(app)
+        await pilot.press("enter")
+        assert prompt.value == "upload --path foobar"
+        assert app.lines == []
+
+
+async def test_enter_submits_exact_match_mid_line() -> None:
+    app = CompleteApp(["--path", "--pathx"])
+    async with app.run_test() as pilot:
+        await _mid_line(pilot, "upload --path foobar", 13)
+        assert dropdown_open(app)
+        await pilot.press("enter")
+        assert app.lines == ["upload --path foobar"]
+
+
+async def test_quoting_mid_line() -> None:
+    app = CompleteApp(FILES)
+    async with app.run_test() as pilot:
+        prompt = await _mid_line(pilot, "open my x", 7)
+        assert prompt.value == "open 'my file.txt' x"
+    app = CompleteApp(FILES)
+    async with app.run_test() as pilot:
+        prompt = await _mid_line(pilot, 'open "my file.txt" re x', 21)
+        assert prompt.value == 'open "my file.txt" readme.md x'
+
+
+async def test_tab_on_empty_word_mid_line_lists_all_candidates() -> None:
+    app = CompleteApp(["--path", "--port"])
+    async with app.run_test() as pilot:
+        prompt = await _mid_line(pilot, "upload  foobar", 7)
+        assert dropdown_open(app)
+        assert option_texts(app) == ["--path", "--port"]
+        await pilot.press("tab")
+        assert prompt.value == "upload --path foobar"
+
+
+async def test_cursor_move_does_not_open_a_closed_dropdown() -> None:
+    app = CompleteApp(["--path", "--pattern"])
+    async with app.run_test() as pilot:
+        prompt = await _mid_line(pilot, "upload --pa", 11)
+        await pilot.press("escape")
+        prompt.cursor_position = 4
+        await pilot.pause()
+        prompt.cursor_position = 11
+        await pilot.pause()
+        assert not dropdown_open(app)
+
+
+async def test_guards_apply_before_the_cursor() -> None:
+    app = CompleteApp(FILES, tab_moves_focus=True)
+    async with app.run_test() as pilot:
+        for value, cursor in [('open "x" y', 8), ("open  y", 5)]:
+            await _mid_line(pilot, value, cursor, key=None)
+            assert not dropdown_open(app), value
+        prompt = await _mid_line(pilot, 'open "my fi" x', 11)
+        assert not dropdown_open(app)
+        assert app.focused is not prompt
+
+
+async def test_recalled_value_stays_closed_mid_line() -> None:
+    app = CompleteApp(["hello"], history=["he x"])
+    async with app.run_test() as pilot:
+        prompt = app.query_one(ConsoleInput)
+        prompt.focus()
+        await pilot.press("up")
+        prompt.cursor_position = 2
+        await pilot.pause()
+        assert prompt.value == "he x"
         assert not dropdown_open(app)
 
 
