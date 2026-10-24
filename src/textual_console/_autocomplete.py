@@ -144,6 +144,20 @@ class CommandAutoComplete(AutoComplete):
         >>> complete = CommandAutoComplete("#prompt", lambda line: ["help", "exit"])
     """
 
+    # The border is on the list, not on this widget, so that the list's outer
+    # size includes it when the dropdown is placed.
+    DEFAULT_CSS = """
+    CommandAutoComplete {
+        background: $panel;
+        max-width: 100vw;
+        & AutoCompleteList {
+            border: round $foreground 40%;
+            max-width: 100%;
+            text-overflow: ellipsis;
+        }
+    }
+    """
+
     def __init__(
         self,
         target: ConsoleInput | str,
@@ -289,23 +303,50 @@ class CommandAutoComplete(AutoComplete):
         self.post_completion()
 
     def _align_to_target(self) -> None:
-        # The base class only moves the dropdown sideways, so a prompt at the
-        # bottom of the screen hides it. Put it above the cursor if it does
-        # not fit below. The options are rebuilt after this call, so their
-        # height is only known after the next refresh.
+        # The base class puts the dropdown one cell left of the cursor and only
+        # moves it sideways. Put the option text under the start of the word,
+        # and put the dropdown above the word if it does not fit below. The
+        # options are rebuilt after this call, so their size is only known
+        # after the next refresh.
         super()._align_to_target()
-        self._place_vertically()
-        self.call_after_refresh(self._place_vertically)
+        self.option_list.styles.max_height = None
+        self._place()
+        self.call_after_refresh(self._place)
 
-    def _place_vertically(self) -> None:
-        offset = self.absolute_offset
-        if offset is None or not self.display:
+    def _place(self) -> None:
+        if self.absolute_offset is None or not self.display:
             return
-        _, y = self.target.cursor_screen_offset
-        height = self.option_list.outer_size.height
-        fits_below = y + 1 + height <= self.screen.size.height
-        row = y - height if not fits_below and y - height >= 0 else y + 1
-        self.absolute_offset = Offset(offset.x, row)
+        x, y = self.target.cursor_screen_offset
+        word_x, word_top = self._word_start(x, y)
+        width, height = self.option_list.outer_size
+        screen = self.screen.size
+        # The border must not hide the word, so the dropdown goes below the
+        # cursor row or above the first row of the word.
+        below = screen.height - (y + 1)
+        above = word_top
+        if height > below and height > above:
+            height = max(below, above)
+            self.option_list.styles.max_height = height
+        row = y + 1 if height <= below else word_top - height
+        left = word_x - self.option_list.styles.gutter.left
+        self.absolute_offset = Offset(max(0, min(left, screen.width - width)), row)
+
+    def _word_start(self, x: int, y: int) -> Offset:
+        """Return the screen cell of the first visible character of the word."""
+        target = self.target
+        row, column = target.cursor_location
+        try:
+            start, _ = token_span_at(target.document.get_line(row), column)
+        except ValueError:
+            start = column
+        wrapped = target.wrapped_document
+        cursor_x, cursor_y = wrapped.location_to_offset((row, column))
+        start_x, start_y = wrapped.location_to_offset((row, start))
+        content = target.content_region
+        return Offset(
+            max(x - (cursor_x - start_x), content.x + target.gutter_width),
+            max(y - (cursor_y - start_y), content.y),
+        )
 
     def _get_target_state(self) -> TargetState:
         target = self.target
