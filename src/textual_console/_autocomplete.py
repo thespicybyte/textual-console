@@ -144,8 +144,6 @@ class CommandAutoComplete(AutoComplete):
         >>> complete = CommandAutoComplete("#prompt", lambda line: ["help", "exit"])
     """
 
-    # The border is on the list, not on this widget, so that the list's outer
-    # size includes it when the dropdown is placed.
     DEFAULT_CSS = """
     CommandAutoComplete {
         background: $panel;
@@ -323,14 +321,7 @@ class CommandAutoComplete(AutoComplete):
         self.post_completion()
 
     def _align_to_target(self) -> None:
-        # The base class puts the dropdown one cell left of the cursor and only
-        # moves it sideways. Put the option text under the start of the word,
-        # and put the dropdown above the word if it does not fit below. The
-        # options are rebuilt after this call, so their size is only known
-        # after the next refresh.
         super()._align_to_target()
-        # The height limit from the last placement is set inline, because it
-        # depends on the screen. It must not stay for the next options.
         self.option_list.styles.max_height = None
         self.option_list.styles.border = None
         self._place()
@@ -343,16 +334,12 @@ class CommandAutoComplete(AutoComplete):
         word_x, word_top = self._word_start(x, y)
         width, height = self.option_list.outer_size
         screen = self.screen.size
-        # The border must not hide the word, so the dropdown goes below the
-        # cursor row or above the first row of the word.
         below = screen.height - (y + 1)
         above = word_top
         if height > below and height > above:
-            # No side fits: use the bigger one and let the list scroll.
             height = max(below, above)
             self.option_list.styles.max_height = height
             if height <= self.option_list.styles.gutter.height:
-                # A border would leave no row for an option.
                 self.option_list.styles.border = ("none", "transparent")
         row = y + 1 if height <= below else word_top - height
         left = word_x - self.option_list.styles.gutter.left

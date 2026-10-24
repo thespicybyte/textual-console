@@ -982,7 +982,6 @@ async def test_option_text_starts_under_the_word() -> None:
         prompt = app.query_one(ConsoleInput)
         content = app.query_one(AutoComplete).option_list.content_region
         assert content.x == prompt.cursor_screen_offset.x - len("he")
-        # In the middle of a line.
         prompt.value = "echo he there"
         prompt.move_cursor((0, 7))
         await pilot.pause()
@@ -1045,7 +1044,6 @@ async def test_dropdown_does_not_leave_the_left_edge() -> None:
         await type_text(app, pilot, "he")
         dropdown = app.query_one(CommandAutoComplete)
         assert dropdown_open(app)
-        # The word starts at column 0, so the border cannot go to column -1.
         assert dropdown.region.x == 0
         assert dropdown.option_list.content_region.x == 1
 
@@ -1059,7 +1057,6 @@ async def test_dropdown_stays_on_a_narrow_screen() -> None:
         assert dropdown_open(app)
         assert dropdown.region.width <= 30
         assert dropdown.region.right <= 30
-        # The options get narrower and then wider again.
         await pilot.press("a")
         await pilot.press("backspace")
         await pilot.pause()
