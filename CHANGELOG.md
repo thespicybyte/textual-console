@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The dropdown follows the cursor when the terminal is resized. Before, it stayed in place, and could be cut off or go off the screen.
 - `CommandAutoComplete`: the dropdown has a round grey border and a `$panel`
   background, so it stands out from the input and output. To change them, style
   `CommandAutoComplete` and `CommandAutoComplete AutoCompleteList`. The dropdown shows

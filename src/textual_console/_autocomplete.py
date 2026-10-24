@@ -178,6 +178,26 @@ class CommandAutoComplete(AutoComplete):
         super().__init__(target, **autocomplete_kwargs)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
         self._source = candidates
         self._explicit = False
+        self._placed_for: tuple[Offset, Size, Size] | None = None
+
+    def on_mount(self) -> None:
+        """Place the dropdown again when the layout changes."""
+        self.screen.screen_layout_refresh_signal.subscribe(self, self._replace_if_moved)
+
+    def _replace_if_moved(self, _: object = None) -> None:
+        if not self.is_attached or not self.display:
+            return
+        key = (
+            self.target.cursor_screen_offset,
+            self.screen.size,
+            self.option_list.outer_size,
+        )
+        if key == self._placed_for:
+            return
+        if self._placed_for is None or key[1] != self._placed_for[1]:
+            self._align_to_target()
+        else:
+            self._place()
 
     @property
     def target(self) -> ConsoleInput:  # type: ignore[override]  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -316,7 +336,7 @@ class CommandAutoComplete(AutoComplete):
         self._place()
         self.call_after_refresh(self._place)
 
-    def _place(self, settle: bool = True) -> None:
+    def _place(self) -> None:
         if self.absolute_offset is None or not self.display:
             return
         x, y = self.target.cursor_screen_offset
@@ -337,15 +357,11 @@ class CommandAutoComplete(AutoComplete):
         row = y + 1 if height <= below else word_top - height
         left = word_x - self.option_list.styles.gutter.left
         self.absolute_offset = Offset(max(0, min(left, screen.width - width)), row)
-        if settle:
-            # The size can still change after this refresh, for example when
-            # the dropdown has just been shown. Place it again if it did.
-            size = self.option_list.outer_size
-            self.call_after_refresh(self._settle, size)
-
-    def _settle(self, placed_for: Size) -> None:
-        if self.option_list.outer_size != placed_for:
-            self._place(settle=False)
+        self._placed_for = (
+            self.target.cursor_screen_offset,
+            screen,
+            self.option_list.outer_size,
+        )
 
     def _word_start(self, x: int, y: int) -> Offset:
         """Return the screen cell of the first visible character of the word."""
