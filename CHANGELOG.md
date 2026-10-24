@@ -4,7 +4,9 @@
 
 - `CommandAutoComplete`: the dropdown follows the cursor when the terminal is resized.
   Before, it stayed in place, and could be cut off or go off the screen. On a screen
-  too short for the border, it shows the options without the border.
+  too short for the border, it shows the options without the border. When it opens
+  again with the same options, for example Tab after Escape, it no longer opens below
+  the cursor and gets cut off.
 - `CommandAutoComplete`: the dropdown has a round grey border and a `$panel`
   background, so it stands out from the input and output. To change them, style
   `CommandAutoComplete` and `CommandAutoComplete AutoCompleteList`. The dropdown shows

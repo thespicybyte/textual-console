@@ -356,7 +356,10 @@ class CommandAutoComplete(AutoComplete):
                 self.option_list.styles.border = ("none", "transparent")
         row = y + 1 if height <= below else word_top - height
         left = word_x - self.option_list.styles.gutter.left
-        self.absolute_offset = Offset(max(0, min(left, screen.width - width)), row)
+        offset = Offset(max(0, min(left, screen.width - width)), row)
+        if offset != self.absolute_offset:
+            self.absolute_offset = offset
+            self.refresh(layout=True)
         self._placed_for = (
             self.target.cursor_screen_offset,
             screen,

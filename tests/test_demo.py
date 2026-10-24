@@ -173,6 +173,19 @@ async def test_dropdown_follows_the_cursor_when_the_screen_shrinks() -> None:
         assert dropdown.region.bottom <= app.screen.size.height
 
 
+async def test_dropdown_reopens_above_after_escape() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(80, 20)) as pilot:
+        await pilot.press(*"echo ", "tab")
+        await pilot.pause()
+        await pilot.press("escape", "tab")
+        await pilot.pause()
+        dropdown = app.query_one(CommandAutoComplete)
+        prompt = app.query_one(ConsoleInput)
+        assert dropdown.display
+        assert dropdown.region.bottom == prompt.cursor_screen_offset.y
+
+
 async def test_dropdown_follows_the_cursor_when_the_screen_grows() -> None:
     app = ConsoleDemo()
     async with app.run_test(size=(80, 20)) as pilot:
