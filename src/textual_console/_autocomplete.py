@@ -309,6 +309,8 @@ class CommandAutoComplete(AutoComplete):
         # options are rebuilt after this call, so their size is only known
         # after the next refresh.
         super()._align_to_target()
+        # The height limit from the last placement is set inline, because it
+        # depends on the screen. It must not stay for the next options.
         self.option_list.styles.max_height = None
         self._place()
         self.call_after_refresh(self._place)
@@ -325,6 +327,7 @@ class CommandAutoComplete(AutoComplete):
         below = screen.height - (y + 1)
         above = word_top
         if height > below and height > above:
+            # No side fits: use the bigger one and let the list scroll.
             height = max(below, above)
             self.option_list.styles.max_height = height
         row = y + 1 if height <= below else word_top - height
