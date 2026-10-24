@@ -64,3 +64,45 @@ def last_token_span(text: str) -> tuple[int, int]:
     if not in_token:
         return len(text), len(text)
     return start, len(text)
+
+
+def token_span_at(text: str, cursor: int) -> tuple[int, int]:
+    r"""Find the raw span of the shell-style token that ends at ``cursor``.
+
+    The quoting rules are the same as for :func:`last_token_span`. The span
+    always ends at ``cursor``: text after the cursor is never part of it. The
+    cursor must be at a token boundary: at the end of the text, or before
+    unquoted, unescaped whitespace.
+
+    Args:
+        text: The command line.
+        cursor: The cursor position in ``text``.
+
+    Returns:
+        The ``(start, end)`` character span of the token. When ``text`` before
+        the cursor is empty or ends in unquoted whitespace, the span is empty
+        and sits at the cursor.
+
+    Raises:
+        ValueError: If a quote before the cursor is not closed, or the cursor
+            is inside a token.
+
+    Example:
+        >>> text = "upload --pa foobar"
+        >>> start, end = token_span_at(text, 11)
+        >>> text[start:end]
+        '--pa'
+        >>> token_span_at("upload  foobar", 7)
+        (7, 7)
+        >>> token_span_at("upload --pa foobar", 9)
+        Traceback (most recent call last):
+            ...
+        ValueError: The cursor is inside a token
+    """
+    span = last_token_span(text[:cursor])
+    if cursor < len(text) and last_token_span(text[: cursor + 1]) != (
+        cursor + 1,
+        cursor + 1,
+    ):
+        raise ValueError("The cursor is inside a token")
+    return span
