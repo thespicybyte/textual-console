@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 (2026-10-24)
 
 - `CommandAutoComplete`: the dropdown follows the cursor when the terminal is resized.
   Before, it stayed in place, and could be cut off or go off the screen. On a screen
