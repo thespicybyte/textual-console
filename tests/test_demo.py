@@ -129,18 +129,81 @@ async def test_demo_dropdown_stays_on_screen() -> None:
 async def test_dropdown_returns_below_when_options_shrink() -> None:
     app = ConsoleDemo()
     async with app.run_test(size=(100, 34)) as pilot:
-        await pilot.press("c")
+        dropdown = app.query_one(CommandAutoComplete)
+        prompt = app.query_one(ConsoleInput)
+        prompt.text = "c\n"
+        prompt.move_cursor((0, 1))
+        await pilot.pause()
+        assert dropdown.region.height == 5
+        assert dropdown.region.bottom == prompt.cursor_screen_offset.y
+        # Change the options while the cursor stays on the same cell.
+        prompt.text = "q\n"
+        prompt.move_cursor((0, 1))
+        await pilot.pause()
+        assert dropdown.region.height == 3
+        assert dropdown.region.y == prompt.cursor_screen_offset.y + 1
+
+
+async def test_dropdown_shows_an_option_on_a_tiny_screen() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(100, 5)) as pilot:
+        await pilot.press(*"echo ", "tab")
+        await pilot.pause()
+        dropdown = app.query_one(CommandAutoComplete)
+        assert dropdown.display
+        assert dropdown.option_list.styles.border.top[0] in ("", "none")
+        assert dropdown.region.height == dropdown.option_list.content_region.height
+        assert dropdown.region.height >= 1
+        assert dropdown.region.bottom <= app.screen.size.height
+
+
+async def test_dropdown_follows_the_cursor_when_the_screen_shrinks() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(80, 20)) as pilot:
+        await pilot.press(*"echo ", "tab")
         await pilot.pause()
         dropdown = app.query_one(CommandAutoComplete)
         prompt = app.query_one(ConsoleInput)
-        assert dropdown.region.height == 3
-        assert dropdown.region.bottom == prompt.cursor_screen_offset.y
-        # Change the options while the cursor stays on the same cell.
-        prompt.text = "q"
-        prompt.move_cursor((0, 1))
+        await pilot.resize_terminal(80, 16)
         await pilot.pause()
-        assert dropdown.region.height == 1
-        assert dropdown.region.y == prompt.cursor_screen_offset.y + 1
+        assert dropdown.region.bottom == prompt.cursor_screen_offset.y
+        assert dropdown.region.bottom <= app.screen.size.height
+
+
+async def test_dropdown_reopens_above_after_escape() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(80, 20)) as pilot:
+        await pilot.press(*"echo ", "tab")
+        await pilot.pause()
+        await pilot.press("escape", "tab")
+        await pilot.pause()
+        dropdown = app.query_one(CommandAutoComplete)
+        prompt = app.query_one(ConsoleInput)
+        assert dropdown.display
+        assert dropdown.region.bottom == prompt.cursor_screen_offset.y
+
+
+async def test_dropdown_follows_the_cursor_when_the_screen_grows() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(80, 20)) as pilot:
+        await pilot.press(*"echo ", "tab")
+        await pilot.pause()
+        dropdown = app.query_one(CommandAutoComplete)
+        prompt = app.query_one(ConsoleInput)
+        await pilot.resize_terminal(80, 30)
+        await pilot.pause()
+        assert dropdown.region.bottom == prompt.cursor_screen_offset.y
+
+
+async def test_dropdown_stays_on_screen_when_the_screen_narrows() -> None:
+    app = ConsoleDemo()
+    async with app.run_test(size=(80, 20)) as pilot:
+        await pilot.press(*"echo ", "tab")
+        await pilot.pause()
+        dropdown = app.query_one(CommandAutoComplete)
+        await pilot.resize_terminal(20, 20)
+        await pilot.pause()
+        assert dropdown.region.right <= app.screen.size.width
 
 
 def test_main_parses_arguments(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

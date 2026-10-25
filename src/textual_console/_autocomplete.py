@@ -9,7 +9,7 @@ from typing import Any
 from rich.cells import cell_len
 from textual import events
 from textual.content import Content
-from textual.geometry import Offset
+from textual.geometry import Offset, Size
 from textual.widgets import TextArea
 from textual.widgets.option_list import Option
 from textual_autocomplete import (
@@ -144,6 +144,18 @@ class CommandAutoComplete(AutoComplete):
         >>> complete = CommandAutoComplete("#prompt", lambda line: ["help", "exit"])
     """
 
+    DEFAULT_CSS = """
+    CommandAutoComplete {
+        background: $panel;
+        max-width: 100vw;
+        & AutoCompleteList {
+            border: round $foreground 40%;
+            max-width: 100%;
+            text-overflow: ellipsis;
+        }
+    }
+    """
+
     def __init__(
         self,
         target: ConsoleInput | str,
@@ -164,6 +176,26 @@ class CommandAutoComplete(AutoComplete):
         super().__init__(target, **autocomplete_kwargs)  # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
         self._source = candidates
         self._explicit = False
+        self._placed_for: tuple[Offset, Size, Size] | None = None
+
+    def on_mount(self) -> None:
+        """Place the dropdown again when the layout changes."""
+        self.screen.screen_layout_refresh_signal.subscribe(self, self._replace_if_moved)
+
+    def _replace_if_moved(self, _: object = None) -> None:
+        if not self.is_attached or not self.display:
+            return
+        key = (
+            self.target.cursor_screen_offset,
+            self.screen.size,
+            self.option_list.outer_size,
+        )
+        if key == self._placed_for:
+            return
+        if self._placed_for is None or key[1] != self._placed_for[1]:
+            self._align_to_target()
+        else:
+            self._place()
 
     @property
     def target(self) -> ConsoleInput:  # type: ignore[override]  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -289,23 +321,54 @@ class CommandAutoComplete(AutoComplete):
         self.post_completion()
 
     def _align_to_target(self) -> None:
-        # The base class only moves the dropdown sideways, so a prompt at the
-        # bottom of the screen hides it. Put it above the cursor if it does
-        # not fit below. The options are rebuilt after this call, so their
-        # height is only known after the next refresh.
         super()._align_to_target()
-        self._place_vertically()
-        self.call_after_refresh(self._place_vertically)
+        self.option_list.styles.max_height = None
+        self.option_list.styles.border = None
+        self._place()
+        self.call_after_refresh(self._place)
 
-    def _place_vertically(self) -> None:
-        offset = self.absolute_offset
-        if offset is None or not self.display:
+    def _place(self) -> None:
+        if self.absolute_offset is None or not self.display:
             return
-        _, y = self.target.cursor_screen_offset
-        height = self.option_list.outer_size.height
-        fits_below = y + 1 + height <= self.screen.size.height
-        row = y - height if not fits_below and y - height >= 0 else y + 1
-        self.absolute_offset = Offset(offset.x, row)
+        x, y = self.target.cursor_screen_offset
+        word_x, word_top = self._word_start(x, y)
+        width, height = self.option_list.outer_size
+        screen = self.screen.size
+        below = screen.height - (y + 1)
+        above = word_top
+        if height > below and height > above:
+            height = max(below, above)
+            self.option_list.styles.max_height = height
+            if height <= self.option_list.styles.gutter.height:
+                self.option_list.styles.border = ("none", "transparent")
+        row = y + 1 if height <= below else word_top - height
+        left = word_x - self.option_list.styles.gutter.left
+        offset = Offset(max(0, min(left, screen.width - width)), row)
+        if offset != self.absolute_offset:
+            self.absolute_offset = offset
+            self.refresh(layout=True)
+        self._placed_for = (
+            self.target.cursor_screen_offset,
+            screen,
+            self.option_list.outer_size,
+        )
+
+    def _word_start(self, x: int, y: int) -> Offset:
+        """Return the screen cell of the first visible character of the word."""
+        target = self.target
+        row, column = target.cursor_location
+        try:
+            start, _ = token_span_at(target.document.get_line(row), column)
+        except ValueError:
+            start = column
+        wrapped = target.wrapped_document
+        cursor_x, cursor_y = wrapped.location_to_offset((row, column))
+        start_x, start_y = wrapped.location_to_offset((row, start))
+        content = target.content_region
+        return Offset(
+            max(x - (cursor_x - start_x), content.x + target.gutter_width),
+            max(y - (cursor_y - start_y), content.y),
+        )
 
     def _get_target_state(self) -> TargetState:
         target = self.target
@@ -431,3 +494,4 @@ class CommandAutoComplete(AutoComplete):
     def _rebuild_options(self, target_state: TargetState, search_string: str) -> None:
         super()._rebuild_options(target_state, search_string)
         self._skip_hint(1)
+        self.call_after_refresh(self._place)

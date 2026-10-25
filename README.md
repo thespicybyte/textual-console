@@ -188,6 +188,12 @@ completion and Tab does what the input does.
 - **Items:** a function can return strings, `DropdownItem`s, `CommandItem(value, help)`
   (shows `help` in a dim second column, aligned) and `CompletionHint(text)` (a dim,
   disabled row that tells what to type. It is never applied).
+- **Style and placement:** the dropdown has a round grey border and a `$panel`
+  background. To change them, style `CommandAutoComplete` and
+  `CommandAutoComplete AutoCompleteList`. The option text starts under the first
+  character of the word. The dropdown is below the cursor, or above the word if it does
+  not fit below. It never covers the word. It is never wider than the screen, and long
+  rows end in `…`.
 - **The candidate source is synchronous.** It runs on the event loop. If the source is
   slow (files, network), cache the result.
 - **The candidate source gets any line.** On Tab it can be empty, only spaces, or end in
